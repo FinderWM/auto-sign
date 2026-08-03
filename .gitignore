@@ -1,0 +1,33 @@
+# Operating system files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# Editor and IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+.tmp-*
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+
+# Optional local dependencies and tooling caches
+node_modules/
+.cache/
+coverage/
+
+# Chrome extension packages
+*.crx

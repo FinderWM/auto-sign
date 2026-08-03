@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>公益站自动签到助手</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      color-scheme: light dark;
+      --page-bg: #f7f7f8;
+      --header-text: #18181b;
+      --surface: #ffffff;
+      --surface-muted: #f4f4f5;
+      --surface-subtle: #f1f1f2;
+      --surface-border: #e4e4e7;
+      --text: #18181b;
+      --text-muted: #71717a;
+      --text-soft: #52525b;
+      --border: #e4e4e7;
+      --input-border: #d4d4d8;
+      --input-focus-border: rgba(82,82,91,0.32);
+      --primary: #18181b;
+      --primary-strong: #3f3f46;
+      --on-primary: #ffffff;
+      --primary-shadow: rgba(24,24,27,0.18);
+      --success: #15803d;
+      --success-hover: #166534;
+      --success-bg: #dcfce7;
+      --success-text: #14532d;
+      --info: #0369a1;
+      --info-bg: #e0f2fe;
+      --info-text: #075985;
+      --danger: #dc2626;
+      --danger-hover: #991b1b;
+      --danger-bg: #fee2e2;
+      --danger-text: #991b1b;
+      --warning: #a16207;
+      --warning-bg: #fef3c7;
+      --warning-text: #854d0e;
+      --neutral-bg: #e4e4e7;
+      --neutral-text: #3f3f46;
+      --secondary-button-bg: #52525b;
+      --secondary-button-text: #ffffff;
+      --tertiary-button-bg: #e4e4e7;
+      --tertiary-button-text: #27272a;
+      --control-accent: #52525b;
+      --visit-bg: #dbeafe;
+      --visit-text: #1d4ed8;
+      --login-bg: #dcfce7;
+      --login-text: #166534;
+      --relogin-bg: #ffedd5;
+      --relogin-text: #9a3412;
+      --shadow: 0 10px 24px rgba(24,24,27,0.06);
+      --focus-ring: rgba(24,24,27,0.03);
+      --focus-outline: #52525b;
+      --input-focus-outline: rgba(82,82,91,0.2);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page-bg: #0b0b0c;
+        --header-text: #fafafa;
+        --surface: #18181b;
+        --surface-muted: #232326;
+        --surface-subtle: #202023;
+        --surface-border: #2f2f35;
+        --text: #f4f4f5;
+        --text-muted: #a1a1aa;
+        --text-soft: #d4d4d8;
+        --border: #2f2f35;
+        --input-border: #3f3f46;
+        --input-focus-border: rgba(212,212,216,0.28);
+        --primary: #fafafa;
+        --primary-strong: #d4d4d8;
+        --on-primary: #18181b;
+        --primary-shadow: rgba(250,250,250,0.16);
+        --success: #4ade80;
+        --success-hover: #22c55e;
+        --success-bg: #102a1a;
+        --success-text: #86efac;
+        --info: #38bdf8;
+        --info-bg: #102a3d;
+        --info-text: #7dd3fc;
+        --danger: #f87171;
+        --danger-hover: #fca5a5;
+        --danger-bg: #3a1518;
+        --danger-text: #fca5a5;
+        --warning: #facc15;
+        --warning-bg: #30250d;
+        --warning-text: #fde68a;
+        --neutral-bg: #303036;
+        --neutral-text: #e4e4e7;
+        --secondary-button-bg: #3f3f46;
+        --secondary-button-text: #f4f4f5;
+        --tertiary-button-bg: #27272a;
+        --tertiary-button-text: #e4e4e7;
+        --control-accent: #a1a1aa;
+        --visit-bg: #16233f;
+        --visit-text: #93c5fd;
+        --login-bg: #102a1a;
+        --login-text: #86efac;
+        --relogin-bg: #3b1f13;
+        --relogin-text: #fdba74;
+        --shadow: 0 14px 32px rgba(0,0,0,0.34);
+        --focus-ring: rgba(250,250,250,0.03);
+        --focus-outline: #d4d4d8;
+        --input-focus-outline: rgba(212,212,216,0.2);
+      }
+    }
+
+    body {
+      width: 460px;
+      min-height: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--page-bg);
+      color: var(--text);
+    }
+
+    .container { padding: 16px; }
+
+    .header { text-align: center; color: var(--header-text); margin-bottom: 16px; }
+    .header h1 { font-size: 18px; margin-bottom: 4px; }
+    .header p { font-size: 11px; opacity: 0.9; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+      margin-bottom: 12px;
+    }
+
+    .status {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .log-panel {
+      margin-bottom: 12px;
+    }
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .log-title {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .log-output {
+      width: 100%;
+      min-height: calc(1.5em * 8 + 20px);
+      max-height: calc(1.5em * 8 + 20px);
+      padding: 10px 11px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #000;
+      color: #f4f4f5;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+      resize: none;
+      overflow-y: auto;
+    }
+    .log-output::placeholder {
+      color: #a1a1aa;
+    }
+    .status-item { text-align: center; }
+    .status-label { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+    .status-value { font-size: 18px; font-weight: bold; color: var(--primary); }
+    .status-value.success-count { color: var(--success); }
+    .status-value.already-count { color: var(--info); }
+    .status-value.failed-count { color: var(--danger); }
+
+    .btn {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:focus-visible,
+    .site-link:focus-visible,
+    .site-continue-pick:focus-visible,
+    .toggle:focus-visible,
+    .site-mode-select:focus-visible {
+      outline: 2px solid var(--focus-outline);
+      outline-offset: 2px;
+    }
+    .add-form input[type="text"]:focus-visible,
+    .settings-row input[type="time"]:focus-visible {
+      outline: none;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+    .btn-primary:hover { box-shadow: 0 4px 12px var(--primary-shadow); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    .checkin-button-content {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-width: 0;
+    }
+    .checkin-button-spinner {
+      display: none;
+      width: 13px;
+      height: 13px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    .checkin-button-spinner.active {
+      display: inline-block;
+    }
+
+    .btn-sm {
+      width: auto;
+      height: 30px;
+      padding: 4px 10px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+    .btn-add {
+      background: var(--primary);
+      color: var(--on-primary);
+      margin-top: 10px;
+    }
+    .btn-add:hover { background: var(--primary-strong); }
+    .btn-resume { margin-top: 8px; }
+    .btn-del {
+      background: none;
+      color: var(--text-muted);
+      padding: 2px 6px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-del:hover { color: var(--neutral-text); }
+    .btn-export {
+      flex: 1;
+      background: var(--secondary-button-bg);
+      color: var(--secondary-button-text);
+    }
+    .btn-import {
+      flex: 1;
+      background: var(--tertiary-button-bg);
+      color: var(--tertiary-button-text);
+    }
+    .btn-clear-logs {
+      background: var(--danger-bg);
+      color: var(--danger-text);
+      flex-shrink: 0;
+    }
+    .config-actions {
+      display: flex;
+      flex: 0 0 144px;
+      gap: 6px;
+      min-width: 0;
+    }
+    .config-actions .btn {
+      padding-left: 8px;
+      padding-right: 8px;
+      white-space: nowrap;
+    }
+    .utility-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+
+    .sites-list { margin-top: 12px; }
+
+    /* 分组 tab */
+    .group-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding-bottom: 2px;
+    }
+    .group-tabs::-webkit-scrollbar { display: none; }
+    .group-tab {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 13px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: var(--surface-muted);
+      color: var(--neutral-text);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .group-tab .tab-count {
+      font-size: 11px;
+      opacity: 0.65;
+    }
+    .group-tab:hover { background: var(--surface-subtle); }
+    .group-tab.active {
+      background: var(--primary);
+      color: var(--surface-muted);
+    }
+    .group-tab.active .tab-count { opacity: 0.85; }
+    /* 拖拽悬停到 tab 上时的高亮 */
+    .group-tab.drop-target {
+      border-color: var(--primary);
+      background: var(--surface-subtle);
+      color: var(--primary);
+    }
+    .site-group-body { min-height: 8px; }
+    /* SortableJS 拖拽态 */
+    .site-item.sortable-ghost { opacity: 0.4; }
+    .site-item.sortable-chosen { background: var(--surface-subtle); }
+    .site-item .drag-handle {
+      flex-shrink: 0;
+      cursor: grab;
+      color: var(--text-muted);
+      font-size: 13px;
+      line-height: 1;
+      user-select: none;
+      padding: 0 2px;
+    }
+    .site-item .drag-handle:active { cursor: grabbing; }
+    .site-item .site-group-pick {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 11px;
+      padding: 2px 4px;
+      border-radius: 6px;
+    }
+    .site-item .site-group-pick:hover { color: var(--primary); background: var(--neutral-bg); }
+    .site-item .site-continue-pick {
+      flex-shrink: 0;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      background: none;
+      border: none;
+      color: var(--info-text);
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 6px;
+    }
+    .site-item .site-continue-pick:hover {
+      color: var(--info);
+      background: var(--info-bg);
+    }
+    .site-item .site-continue-pick:disabled {
+      color: var(--text-muted);
+      background: transparent;
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .site-item .site-stop-pick {
+      flex-shrink: 0;
+      min-width: 28px;
+      height: 22px;
+      padding: 0 6px;
+      background: var(--danger-bg);
+      border: none;
+      color: var(--danger-text);
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 6px;
+    }
+    .site-item .site-stop-pick:hover {
+      filter: brightness(0.97);
+    }
+    .site-item .site-stop-pick:disabled {
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+
+    .site-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      background: var(--surface-muted);
+      border-radius: 8px;
+      font-size: 12px;
+      gap: 8px;
+    }
+    .site-item .toggle {
+      accent-color: var(--control-accent);
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .site-item .site-content {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .site-item .site-primary-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .site-item .site-name {
+      flex: 1;
+      min-width: 0;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .site-item .site-secondary-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
+    }
+    .site-item .site-link {
+      display: block;
+      min-width: 0;
+      background: none;
+      border: none;
+      color: var(--neutral-text);
+      cursor: pointer;
+      font: inherit;
+      padding: 0;
+      text-align: left;
+    }
+    .site-item .site-link:hover {
+      color: var(--primary);
+    }
+    .site-item .site-alert-badge {
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .site-item .site-alert-badge.human-verification {
+      background: #fde68a;
+      color: #9a3412;
+      box-shadow: inset 0 0 0 1px rgba(154, 52, 18, 0.16);
+    }
+    .site-item:hover {
+      background: var(--surface-subtle);
+    }
+    .site-meta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .site-status {
+      padding: 3px 10px;
+      border: none;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+    .site-status.retryable {
+      cursor: pointer;
+    }
+    .site-status.retryable:hover {
+      filter: brightness(0.96);
+    }
+    .site-status.retryable:focus-visible {
+      outline: 2px solid var(--focus-outline);
+      outline-offset: 2px;
+    }
+    .site-status.success { background: var(--success-bg); color: var(--success-text); }
+    .site-status.already { background: var(--info-bg); color: var(--info-text); }
+    .site-status.failed { background: var(--danger-bg); color: var(--danger-text); }
+    .site-status.invalid { background: var(--danger-bg); color: var(--danger-text); }
+    .site-status.checking { background: var(--warning-bg); color: var(--warning-text); }
+    .site-status.pending { background: var(--warning-bg); color: var(--warning-text); }
+    .site-balance {
+      padding: 3px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: bold;
+      background: var(--neutral-bg);
+      color: var(--primary);
+      max-width: 96px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .site-mode {
+      padding: 3px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: bold;
+      flex-shrink: 0;
+      background: var(--neutral-bg);
+      color: var(--neutral-text);
+    }
+    .site-mode.visit {
+      background: var(--visit-bg);
+      color: var(--visit-text);
+    }
+    .site-mode.login {
+      background: var(--login-bg);
+      color: var(--login-text);
+    }
+    .site-mode.relogin {
+      background: var(--relogin-bg);
+      color: var(--relogin-text);
+    }
+    .api-toggle {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .api-label {
+      padding: 2px 6px;
+      border-radius: 8px;
+      font-size: 9px;
+      font-weight: 600;
+      flex-shrink: 0;
+      background: var(--neutral-bg);
+      color: var(--neutral-text);
+    }
+    .empty-state {
+      padding: 16px 10px 8px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    /* Add site form */
+    .add-form {
+      display: none;
+      margin-top: 10px;
+      padding: 10px;
+      background: var(--surface-subtle);
+      border-radius: 8px;
+    }
+    .add-form.show { display: block; }
+    .site-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .site-input-row input[type="text"] {
+      flex: 1;
+      min-width: 0;
+    }
+    .site-mode-select {
+      width: 112px;
+      height: 34px;
+      padding: 0 8px;
+      border: 1px solid var(--input-border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      flex-shrink: 0;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .add-form input[type="text"] {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--input-border);
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      background: var(--surface);
+      color: var(--text);
+    }
+    .add-form input[type="text"]:focus {
+      border: 2px solid var(--input-focus-border);
+      padding: 7px 9px;
+      box-shadow: none;
+    }
+    .add-form input[type="text"]::placeholder { color: var(--text-muted); }
+    .add-form .form-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .add-form .form-actions .btn {
+      flex: 1;
+      padding: 8px;
+    }
+    .btn-cancel { background: var(--secondary-button-bg); color: var(--secondary-button-text); }
+
+    .last-check {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 10px;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      flex: 1;
+      gap: 6px;
+      min-width: 0;
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+      font-size: 12px;
+    }
+    .settings-row label {
+      color: var(--text-soft);
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .settings-row input[type="time"] {
+      flex: 1;
+      height: 30px;
+      min-width: 86px;
+      padding: 6px 8px;
+      border: 1px solid var(--input-border);
+      border-radius: 6px;
+      font-size: 12px;
+      outline: none;
+      background: var(--surface);
+      color: var(--text);
+    }
+    .settings-row input[type="time"]:focus {
+      border: 2px solid var(--input-focus-border);
+      padding: 5px 7px;
+      box-shadow: none;
+    }
+    .settings-row .btn {
+      flex-shrink: 0;
+      background: var(--primary);
+      color: var(--on-primary);
+    }
+    .settings-status {
+      min-height: 16px;
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--success);
+      text-align: right;
+    }
+    .settings-status.error { color: var(--danger); }
+
+    .loading { text-align: center; padding: 16px; color: var(--text-muted); }
+    .spinner {
+      border: 3px solid var(--surface-subtle);
+      border-top: 3px solid var(--primary);
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 8px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .footer {
+      text-align: center;
+      color: var(--header-text);
+      font-size: 10px;
+      margin-top: 10px;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>公益站自动签到</h1>
+      <p>支持NewAPI、Sub2API等多类型站点 | 每天 <span id="autoSignTimeLabel">09:00</span></p>
+    </div>
+
+    <div class="card">
+      <div class="log-panel">
+        <div class="log-header">
+          <div class="log-title">运行日志</div>
+          <button class="btn btn-sm btn-clear-logs" id="clearLogsBtn">清空日志</button>
+        </div>
+        <textarea class="log-output" id="logOutput" rows="8" readonly placeholder="暂无日志"></textarea>
+      </div>
+
+      <div class="status">
+        <div class="status-item">
+          <div class="status-label">站点</div>
+          <div class="status-value" id="totalSites">-</div>
+        </div>
+        <div class="status-item">
+          <div class="status-label">成功</div>
+          <div class="status-value success-count" id="successCount">-</div>
+        </div>
+        <div class="status-item">
+          <div class="status-label">已签</div>
+          <div class="status-value already-count" id="alreadyCount">-</div>
+        </div>
+        <div class="status-item">
+          <div class="status-label">失败</div>
+          <div class="status-value failed-count" id="failedCount">-</div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="checkInBtn" disabled title="请先添加并启用至少一个站点">
+        <span class="checkin-button-content">
+          <span class="checkin-button-spinner" id="btnSpinner" aria-hidden="true"></span>
+          <span id="btnText">立即签到</span>
+        </span>
+      </button>
+
+      <button class="btn btn-primary btn-resume" id="resumeBtn" style="display:none;" title="仅重签上次失败/未完成的站点">
+        继续签到（仅未完成）
+      </button>
+
+      <div class="sites-list" id="sitesList"></div>
+
+      <button class="btn btn-sm btn-add" id="showAddBtn">+ 添加站点</button>
+
+      <div class="add-form" id="addForm">
+        <div class="site-input-row">
+          <input type="text" id="newDomain" placeholder="站点页面链接，如 c.com/console/personal">
+          <select class="site-mode-select" id="siteMode" aria-label="签到模式">
+            <option value="checkin">按钮/API</option>
+            <option value="visit">仅访问</option>
+            <option value="login">登录签到</option>
+            <option value="relogin">重登签到</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="confirmAddBtn">添加</button>
+          <button class="btn btn-cancel" id="cancelAddBtn">取消</button>
+        </div>
+      </div>
+
+      <div class="utility-row">
+        <div class="config-actions">
+          <button class="btn btn-sm btn-export" id="exportBtn">导出配置</button>
+          <button class="btn btn-sm btn-import" id="importBtn">导入配置</button>
+        </div>
+        <div class="settings-row">
+          <label for="autoSignTime">每日签到</label>
+          <input type="time" id="autoSignTime" value="09:00">
+          <button class="btn btn-sm" id="saveTimeBtn">保存</button>
+        </div>
+      </div>
+      <input type="file" id="importFile" accept=".json" style="display: none;">
+      <div class="settings-status" id="timeStatus"></div>
+
+      <div class="last-check" id="lastCheck">暂无签到记录</div>
+    </div>
+
+    <div class="footer" id="versionFooter">v1.00</div>
+  </div>
+
+  <script src="vendor/Sortable.min.js"></script>
+  <script src="schedule.js"></script>
+  <script src="backup-config.js"></script>
+  <script src="site-url.js"></script>
+  <script src="config.js"></script>
+  <script src="checkin-run-state.js"></script>
+  <script src="render-guard.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
