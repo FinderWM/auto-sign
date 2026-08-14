@@ -16,6 +16,7 @@
   const CHECKIN_TEXT = /^(?:立即签到|现在签到|每日签到|每日领取|签到领取|领取奖励|Check in now|daily check.?in|签到|签|领取)$/i;
   const CHECKED_IN_TEXT = /^(?:已签到|已签|今日已签到|今日已签|checked in today|already checked in)$/i;
   const NEGATIVE_TEXT = /设置|配置|settings?|enable|minimum|maximum|quota|已签到|已签|今日已签|already|历史|记录|说明|规则/i;
+  const IS_SOTA_AGENT_PAGE = location.hostname === 'www.sotamodel.net' && location.pathname === '/agents';
 
   let injectedButton = null;
   let cachedDomain = location.hostname.toLowerCase();
@@ -50,10 +51,12 @@
   }
 
   function isCheckInText(text) {
+    if (IS_SOTA_AGENT_PAGE && /^Check in$/i.test(text)) return true;
     return Boolean(text) && CHECKIN_TEXT.test(text) && !NEGATIVE_TEXT.test(text);
   }
 
   function isCheckedInText(text) {
+    if (IS_SOTA_AGENT_PAGE && /^Checked in$/i.test(text)) return true;
     return Boolean(text) && CHECKED_IN_TEXT.test(text);
   }
 
@@ -72,6 +75,7 @@
     const candidates = document.querySelectorAll('button, [role="button"], a, input[type="button"], input[type="submit"]');
     for (const el of candidates) {
       if (isCheckInButton(el)) return el;
+      if (IS_SOTA_AGENT_PAGE && isAlreadyCheckedInButton(el)) return el;
     }
     return null;
   }
@@ -80,6 +84,13 @@
     if (!el || el.classList.contains(ENTRY_CLASS)) return false;
     const text = getButtonText(el);
     if (!isCheckInText(text)) return false;
+    return isVisible(el);
+  }
+
+  function isAlreadyCheckedInButton(el) {
+    if (!el || el.classList.contains(ENTRY_CLASS)) return false;
+    const text = getButtonText(el);
+    if (!isCheckedInText(text)) return false;
     return isVisible(el);
   }
 

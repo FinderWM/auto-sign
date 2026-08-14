@@ -8,8 +8,22 @@ const GLOBAL_CONFIG = {
   requestTimeout: 10000
 };
 
+const SOTA_AGENT_SITE_TYPE = 'sota-agent';
+const SOTA_AGENT_PAGE_PATH = '/agents';
+const SOTA_AGENT_CHECK_IN_PATH = '/api/user/sota-agent-checkin';
+
 function normalizeSiteType(type) {
-  return ['auto', 'newapi', 'sub2api', 'zenapi', 'infinite-canvas', 'deeix-chat', 'points-checkin', 'localapi'].includes(type) ? type : 'newapi';
+  return [
+    'auto',
+    'newapi',
+    'sub2api',
+    'zenapi',
+    'infinite-canvas',
+    'deeix-chat',
+    'points-checkin',
+    'localapi',
+    SOTA_AGENT_SITE_TYPE
+  ].includes(type) ? type : 'newapi';
 }
 
 function normalizeSiteMode(mode) {
@@ -82,6 +96,10 @@ function normalizeSitePageUrlForType(pageUrl, domain, type, defaultPagePath) {
     } catch (e) {}
   }
 
+  if (type === SOTA_AGENT_SITE_TYPE) {
+    return defaultUrl;
+  }
+
   return pageUrl;
 }
 
@@ -89,7 +107,11 @@ function normalizeSitePageUrlForType(pageUrl, domain, type, defaultPagePath) {
 function buildSiteConfig(site) {
   const d = site.domain;
   const mode = normalizeSiteMode(site.mode);
-  const type = mode === 'visit' ? 'visit' : normalizeSiteType(site.type);
+  const normalizedType = normalizeSiteType(site.type);
+  const exactSiteType = normalizedType === SOTA_AGENT_SITE_TYPE && d !== 'www.sotamodel.net'
+    ? 'newapi'
+    : normalizedType;
+  const type = mode === 'visit' ? 'visit' : exactSiteType;
   const apiBasePathByType = {
     sub2api: '/api/v1/user/check-in',
     zenapi: '/api/u/checkin',
@@ -97,7 +119,8 @@ function buildSiteConfig(site) {
     'deeix-chat': '/api/v1/billing/checkin',
     // Cookie 会话 + LinuxDO OAuth + /api/points/checkin（WisArt 等同协议站点）
     'points-checkin': '/api/points/checkin',
-    localapi: '/user/api/checkin'
+    localapi: '/user/api/checkin',
+    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH
   };
   const defaultPagePathByType = {
     sub2api: '/check-in',
@@ -105,19 +128,23 @@ function buildSiteConfig(site) {
     'infinite-canvas': '/check-in',
     'deeix-chat': '/chat',
     'points-checkin': '/#/checkin',
-    localapi: '/checkin'
+    localapi: '/checkin',
+    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_PAGE_PATH
   };
   const queryPathByType = {
     zenapi: '/api/u/dashboard',
     'infinite-canvas': '/api/auth/me',
     'deeix-chat': '/api/v1/billing/overview',
     'points-checkin': '/api/auth/me',
-    localapi: '/user/api/dashboard'
+    localapi: '/user/api/dashboard',
+    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH
   };
   const apiBasePath = apiBasePathByType[type] || '/api/user/checkin';
   const defaultPagePath = defaultPagePathByType[type] || '/console/personal';
   const queryPath = queryPathByType[type] || apiBasePath;
-  const defaultUseApi = ['infinite-canvas', 'deeix-chat', 'points-checkin', 'localapi'].includes(type) && site.useApi !== false;
+  const defaultUseApi =
+    ['infinite-canvas', 'deeix-chat', 'points-checkin', 'localapi', SOTA_AGENT_SITE_TYPE].includes(type) &&
+    site.useApi !== false;
   const unauthKeywords = ['login', 'relogin'].includes(mode)
     ? ['未登录', '请登录', '登录后', 'Sign in', 'Log in', 'Login']
     : type === 'localapi'
@@ -164,6 +191,7 @@ async function loadRawSites() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULT_SITES,
+    SOTA_AGENT_SITE_TYPE,
     buildSiteConfig,
     dedupeSitesByDomain,
     normalizeSiteMode,

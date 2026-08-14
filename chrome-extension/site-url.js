@@ -15,7 +15,17 @@
   }
 
   function normalizeSiteType(type) {
-    return ['auto', 'newapi', 'sub2api', 'zenapi', 'infinite-canvas', 'deeix-chat', 'points-checkin', 'localapi'].includes(type) ? type : 'auto';
+    return [
+      'auto',
+      'newapi',
+      'sub2api',
+      'zenapi',
+      'infinite-canvas',
+      'deeix-chat',
+      'points-checkin',
+      'localapi',
+      'sota-agent'
+    ].includes(type) ? type : 'auto';
   }
 
   function applySiteType(site, type) {
@@ -111,6 +121,9 @@
           }
         } catch (e) {}
       }
+      if (site?.type === 'sota-agent' && site.domain === 'www.sotamodel.net') {
+        return `https://${site.domain}/agents`;
+      }
       return site.pageUrl;
     }
     if (site?.type === 'deeix-chat') return `https://${site.domain}/chat`;
@@ -119,6 +132,7 @@
     if (site?.type === 'sub2api') return `https://${site.domain}/check-in`;
     if (site?.type === 'points-checkin') return getPointsCheckinDefaultPageUrl(site.domain);
     if (site?.type === 'localapi') return getLocalApiDefaultPageUrl(site.domain);
+    if (site?.type === 'sota-agent' && site.domain === 'www.sotamodel.net') return `https://${site.domain}/agents`;
     return `https://${site.domain}${DEFAULT_SITE_PAGE_PATH}`;
   }
 

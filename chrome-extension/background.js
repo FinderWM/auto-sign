@@ -1,5 +1,5 @@
 // 导入配置
-importScripts('schedule.js', 'config.js', 'site-url.js', 'auth-headers.js', 'auth-cache-crypto.js', 'checkin-result.js', 'newapi-auth.js', 'zenapi-auth.js', 'tab-options.js', 'site-name.js', 'page-status.js', 'checkin-run-state.js', 'balance.js');
+importScripts('schedule.js', 'config.js', 'site-url.js', 'auth-headers.js', 'auth-cache-crypto.js', 'checkin-result.js', 'sota-agent.js', 'newapi-auth.js', 'zenapi-auth.js', 'tab-options.js', 'site-name.js', 'page-status.js', 'checkin-run-state.js', 'balance.js');
 
 const DAILY_CHECK_IN_ALARM = 'dailyCheckIn';
 const PAGE_USABLE_TIMEOUT_MS = 20000;
@@ -24,7 +24,8 @@ const SITE_TYPE_CHECK_IN_HANDLERS = {
   sub2api: checkInSub2ApiSite,
   zenapi: checkInZenApiSite,
   'points-checkin': checkInPointsCheckinSite,
-  localapi: checkInLocalApiSite
+  localapi: checkInLocalApiSite,
+  'sota-agent': checkInSotaAgentSite
 };
 const SITE_TYPE_DAILY_LOGIN_HANDLERS = {
   newapi: checkInNewApiDailyLogin
@@ -1118,7 +1119,8 @@ async function maybeUpdateSiteName(site, tabSession = null) {
     enabled: site.enabled,
     mode: site.mode,
     type: site.type,
-    pageUrl: site.visitUrl
+    pageUrl: site.visitUrl,
+    useApi: site.type === 'sota-agent' ? site.useApi : undefined
   });
 }
 
@@ -1823,6 +1825,9 @@ async function resolveSiteType(site, tabSession = null) {
   if (site.type !== 'auto') return site;
 
   const detectedType = await detectSiteType(site, tabSession);
+  const configuredUseApi = detectedType === 'sota-agent'
+    ? await getConfiguredUseApi(site.cookieDomain)
+    : site.useApi;
   await updateRawSiteType(site.cookieDomain, detectedType);
 
   return buildSiteConfig({
@@ -1832,8 +1837,14 @@ async function resolveSiteType(site, tabSession = null) {
     mode: site.mode,
     type: detectedType,
     pageUrl: getResolvedVisitUrl(site, detectedType),
-    useApi: site.useApi
+    useApi: configuredUseApi
   });
+}
+
+async function getConfiguredUseApi(domain) {
+  const sites = await loadRawSites();
+  const rawSite = sites.find(site => site.domain === domain);
+  return typeof rawSite?.useApi === 'boolean' ? rawSite.useApi : undefined;
 }
 
 function getResolvedVisitUrl(site, type) {
@@ -1878,6 +1889,9 @@ function getResolvedVisitUrl(site, type) {
       }
     } catch (e) {}
   }
+  if (type === 'sota-agent' && isSotaAgentDomain(site.cookieDomain)) {
+    return `https://${site.cookieDomain}${SOTA_AGENT_PAGE_PATH}`;
+  }
   return site.visitUrl;
 }
 
@@ -1905,16 +1919,22 @@ async function maybeUpgradeLegacyNewApiSite(site, tabSession = null) {
     return site;
   }
 
-  const forcedUseApi =
+  let forcedUseApi =
     detectedType === 'sub2api' || detectedType === 'points-checkin' || detectedType === 'localapi'
       ? true
       : undefined;
+  if (detectedType === 'sota-agent') {
+    const configuredUseApi = await getConfiguredUseApi(site.cookieDomain);
+    forcedUseApi = typeof configuredUseApi === 'boolean' ? configuredUseApi : true;
+  }
   await updateRawSiteType(site.cookieDomain, detectedType, { useApi: forcedUseApi });
 
   const resolvedPageUrl = detectedType === 'points-checkin'
     ? getPointsCheckinDefaultPageUrl(site.cookieDomain)
     : detectedType === 'localapi'
     ? getLocalApiDefaultPageUrl(site.cookieDomain)
+    : detectedType === 'sota-agent'
+    ? `https://${site.cookieDomain}${SOTA_AGENT_PAGE_PATH}`
     : getResolvedVisitUrl(site, detectedType);
 
   const nextSite = buildSiteConfig({
@@ -2139,6 +2159,11 @@ async function detectPointsCheckinFromApi(domain) {
 async function detectSiteType(site, tabSession = null) {
   const urlHint = detectSiteTypeFromUrl(site.visitUrl);
 
+  if (urlHint === 'sota-agent') {
+    console.log(`${site.siteName} URL 精确识别为 Sota Agent`);
+    return 'sota-agent';
+  }
+
   // 1) SW 侧 API 探测（不依赖 tab / 页面脚本）
   if (site?.cookieDomain && await detectLocalApiFromApi(site.cookieDomain)) {
     console.log(`${site.siteName} API 探测识别为 localapi`);
@@ -2343,6 +2368,7 @@ async function detectSiteType(site, tabSession = null) {
 function detectSiteTypeFromUrl(url) {
   try {
     const parsed = new URL(url || '');
+    if (isSotaAgentDomain(parsed.hostname)) return 'sota-agent';
     if (parsed.pathname.startsWith('/chat')) return 'deeix-chat';
     const redirect = parsed.searchParams.get('redirect') || '';
     if (
@@ -2416,6 +2442,9 @@ async function updateRawSiteType(domain, type, { useApi } = {}) {
           );
       } catch (e) {}
       if (needsDefault) next.pageUrl = getLocalApiDefaultPageUrl(domain);
+    }
+    if (type === 'sota-agent' && isSotaAgentDomain(domain)) {
+      next.pageUrl = `https://${domain}${SOTA_AGENT_PAGE_PATH}`;
     }
     return next;
   });
@@ -2577,6 +2606,89 @@ async function checkInSite(site, tabSession = null) {
   await closeTabUnlessInSession(tabToCleanup, tabSession);
   result.queryVerified = queryVerified;
   return result;
+}
+
+async function executeSotaAgentTabRequest(tabId, method) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: requestSotaAgentInPage,
+      args: [method, SOTA_AGENT_CHECK_IN_PATH, SOTA_AGENT_USER_HEADER, SITE_FETCH_TIMEOUT_MS]
+    });
+    return results[0]?.result || {
+      error: 'Sota Agent 页面请求无响应',
+      httpStatus: 0,
+      data: null
+    };
+  } catch (e) {
+    return {
+      error: e?.message || 'Sota Agent 页面请求失败',
+      httpStatus: 0,
+      data: null
+    };
+  }
+}
+
+function logSotaAgentRequestState(site, stage, result) {
+  console.log(`${site.siteName} Sota Agent ${stage}:`, {
+    httpStatus: result?.httpStatus || 0,
+    hasUid: result?.hasUid === true,
+    missingUid: result?.missingUid === true,
+    invalidSite: result?.invalidSite === true,
+    hasError: Boolean(result?.error)
+  });
+}
+
+function buildSotaAgentRunResult(execResult, queryVerified = false) {
+  const result = formatResult(execResult);
+  if (execResult?.balance) result.balance = execResult.balance;
+  result.queryVerified = queryVerified;
+  return result;
+}
+
+async function finishSotaAgentWithPageFallback(site, execResult, tabId, tabSession) {
+  const fallback = await tryOfficialPageFallback(site, execResult, tabId, tabSession);
+  const result = buildSotaAgentRunResult(fallback.execResult, false);
+  await closeTabUnlessInSession(fallback.tabToCleanup, tabSession);
+  return result;
+}
+
+async function finishSotaAgentApiResult(execResult, tabId, tabSession, queryVerified) {
+  const result = buildSotaAgentRunResult(execResult, queryVerified);
+  await closeTabUnlessInSession(tabId, tabSession);
+  return result;
+}
+
+async function checkInSotaAgentSite(site, tabSession = null) {
+  if (!isSotaAgentDomain(site.cookieDomain)) {
+    return { status: 'failed', message: 'Sota Agent 仅支持 www.sotamodel.net' };
+  }
+
+  if (!site.useApi) {
+    return finishSotaAgentWithPageFallback(site, {
+      success: false,
+      message: '已禁用接口调用，使用页面点击签到',
+      httpStatus: 0,
+      skipApiByConfig: true
+    }, null, tabSession);
+  }
+
+  await appendCheckInLog(site.siteName, '待检查', '使用 Sota Agent 页面登录态查询今日签到状态');
+  const tab = await openSiteSessionTab(tabSession, site.visitUrl, 20000);
+  const flowResult = await runSotaAgentCheckInFlow(
+    method => executeSotaAgentTabRequest(tab.id, method),
+    (stage, result) => logSotaAgentRequestState(site, stage, result)
+  );
+  if (flowResult.shouldFallback) {
+    return finishSotaAgentWithPageFallback(site, flowResult.execResult, tab.id, tabSession);
+  }
+  return finishSotaAgentApiResult(
+    flowResult.execResult,
+    tab.id,
+    tabSession,
+    flowResult.queryVerified
+  );
 }
 
 async function checkInDeeixChatSite(site, tabSession = null) {
@@ -4811,6 +4923,9 @@ async function tryDirectNewApiOfficialLogin(site, tabSession = null) {
 
 async function ensureOfficialPageLoginBeforeCheckIn(site, tab, tabSession = null) {
   if (!tab?.id) {
+    return tab;
+  }
+  if (site.type === 'sota-agent') {
     return tab;
   }
 

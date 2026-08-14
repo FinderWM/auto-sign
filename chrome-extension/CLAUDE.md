@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概览
 
-Chrome MV3 扩展「公益站自动签到助手」：管理多个公益 API 站点的每日签到，支持 NewAPI / Sub2API / ZenAPI / Infinite Canvas / DEEIX Chat / LocalAPI / points-checkin（Cookie 会话 + `/api/points/checkin`）接口签到、页面按钮兜底签到、仅访问模式。功能清单、签到流程、站点类型、权限说明、逐文件用途见 `README.md`——本文件只记录需要跨多文件阅读才能掌握的架构与非显而易见的工作约定。
+Chrome MV3 扩展「公益站自动签到助手」：管理多个公益 API 站点的每日签到，支持 NewAPI / Sub2API / ZenAPI / Infinite Canvas / DEEIX Chat / LocalAPI / points-checkin（Cookie 会话 + `/api/points/checkin`）/ Sota Agent（独立鉴权分支）接口签到、页面按钮兜底签到、仅访问模式。功能清单、签到流程、站点类型、权限说明、逐文件用途见 `README.md`——本文件只记录需要跨多文件阅读才能掌握的架构与非显而易见的工作约定。
 
 ## 开发命令
 
-无构建步骤、无打包、无依赖、无测试套件、**非 git 仓库**。所有 `.js` 为 MV3/浏览器手写脚本。改完在 `chrome://extensions` 重新加载扩展即生效。
+无构建步骤、无打包、无第三方运行依赖、**非 git 仓库**。所有 `.js` 为 MV3/浏览器手写脚本。改完在 `chrome://extensions` 重新加载扩展即生效。
 
-> 注：当前无 tests 目录、非 git 仓库，勿照搬通用的 `node --test tests/*.test.js` 或 `git diff --check`。
+> 注：当前仅使用 Node 内置测试运行器覆盖独立模块，不存在完整的浏览器自动化测试套件。
 
 - 语法校验（本地无依赖可跑）：`node --check background.js`、`node --check popup.js`，可对任意 `.js` 重复执行。
+- Sota Agent 契约测试：`node --test tests/sota-agent.test.js`。
 - 验证签到逻辑需在真实 Chrome 加载扩展，观察 service worker 控制台（`chrome://extensions` → 扩展 →「service worker」链接）的日志。
 
 ## 架构（big picture）
@@ -23,7 +24,11 @@ Chrome MV3 扩展「公益站自动签到助手」：管理多个公益 API 站�
 
 ### 站点类型探测与分发
 
-配置中 `type: 'auto'` 的站点，首次签到由 `detectSiteType`（URL 提示 + 页面探测）识别为 `newapi`/`sub2api`/`zenapi`/`infinite-canvas`/`deeix-chat`/`localapi`/`points-checkin` 并持久化回配置。`checkInSite` 优先通过 `SITE_TYPE_CHECK_IN_HANDLERS` 按类型分发到专用 handler，未命中则走默认 NewAPI 路径；`mode === 'visit'` 走 `visitSite`（仅访问页面、读余额）。新增奇怪站点时优先新增 type + handler + config 映射，避免继续扩张默认 NewAPI 流程。`localapi` 通过 `x-user-token` 调用 `/user/api/checkin`，`points-checkin` 则是 Cookie 会话 + `/api/auth/linuxdo/start` + `/api/points/checkin` 协议，两者不能混用。
+配置中 `type: 'auto'` 的站点，首次签到由 `detectSiteType`（URL 提示 + 页面探测）识别为 `newapi`/`sub2api`/`zenapi`/`infinite-canvas`/`deeix-chat`/`localapi`/`points-checkin`/`sota-agent` 等并持久化回配置。`checkInSite` 优先通过 `SITE_TYPE_CHECK_IN_HANDLERS` 按类型分发到专用 handler，未命中则走默认 NewAPI 路径；`mode === 'visit'` 走 `visitSite`（仅访问页面、读余额）。新增站点协议时优先新增 type + handler + config 映射，避免扩张默认 NewAPI 流程。
+
+`sota-agent` 仅对精确域名 `www.sotamodel.net` 生效。专用 handler 在 `/agents` 页面内读取 `localStorage.uid`，以 `New-Api-User` 请求头调用 `GET/POST /api/user/sota-agent-checkin`；它不调用 NewAPI 的缓存认证、`/auth/refresh` 或 OAuth 分支。
+
+`localapi` 通过 `x-user-token` 调用 `/user/api/checkin`，`points-checkin` 则是 Cookie 会话 + `/api/auth/linuxdo/start` + `/api/points/checkin` 协议，两者不能混用。
 
 ### 认证三级回退
 
@@ -54,7 +59,7 @@ popup 经 `chrome.runtime.sendMessage` 触发 `manualCheckIn` / `retrySiteCheckI
 
 ### 版本号递增
 
-- 每完成一次实质性代码修改，将 `manifest.json` 的 `version` 末段 +1（如 `1.23` → `1.24`）。**只需改 `manifest.json` 一处**。
+- 每完成一次实质性代码修改，将 `manifest.json` 的 `version` 末段 +1（如 `1.23` → `1.24`），并同步更新 `version_name`。
 - 原因：扩展代码改动必须 reload 才生效，版本号是确认「已加载到最新代码」的唯一可见标志；不递增则无法区分 reload 的是哪一轮改动，验证时易误判。
-- 页脚版本号同步：popup 启动时 `popup.js` 用 `chrome.runtime.getManifest().version` 动态覆盖 `#versionFooter`，自动与 manifest 一致。`popup.html` 里写死的 `v1.xx` 仅作 JS 未执行时的兜底，**不必手动改**（改了也会被运行时覆盖）。
+- 页脚版本号同步：popup 启动时 `popup.js` 用 manifest 版本动态覆盖 `#versionFooter`；每次递增版本时仍须同步修改 `popup.html` 的兜底文本，确保 popup JavaScript 未执行时也显示正确版本。
 - 验证前提示用户在 `chrome://extensions` reload，并确认显示的新版本号。纯文档/注释类改动可酌情跳过。

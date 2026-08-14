@@ -4,7 +4,7 @@
 
 ## 核心功能
 
-- **自动识别站点类型**：新增站点默认自动识别 NewAPI、Sub2API、ZenAPI、Infinite Canvas、DEEIX Chat、LocalAPI、积分签到（points-checkin）等类型。
+- **自动识别站点类型**：新增站点默认自动识别 NewAPI、Sub2API、ZenAPI、Infinite Canvas、DEEIX Chat、LocalAPI、积分签到（points-checkin）、Sota Agent（独立适配）等类型。
 - **登录态优先复用**：优先使用缓存认证头和浏览器已有登录态，必要时才触发 linux.do OAuth。
 - **接口签到**：根据站点类型调用对应签到接口。
 - **页面兜底签到**：接口失败时后台打开填写的签到页链接，查找并点击“签到 / 签 / Check in”等按钮。
@@ -84,6 +84,7 @@
 - **DEEIX Chat**：登录态通过 `/api/v1/auth/refresh` 获取，支持 linux.do OAuth；签到候选接口为 `/api/v1/billing/checkin`，如果站点未开放该接口，会提示“自动登录成功，但未发现 DEEIX Chat 签到接口”并继续尝试读取余额。
 - **LocalAPI**：从 `localStorage.localapi_user_token` 读取登录态并发送 `x-user-token`；登录走 `/user/api/auth/linuxdo`；签到 `GET/POST /user/api/checkin`。
 - **积分签到（points-checkin）**：Cookie 会话鉴权；探测 `/api/auth/linuxdo/config` + `/api/points/checkin`；登录走 `/api/auth/linuxdo/start`；签到 `GET/POST /api/points/checkin`（`daily_checkin.signed_today` / `added` / `points`）。WisArt 等同协议站点可复用。
+- **Sota Agent**：仅匹配 `www.sotamodel.net`，签到页为 `/agents`；从页面 `localStorage.uid` 读取登录态并发送 `New-Api-User`，状态和签到共用 `GET/POST /api/user/sota-agent-checkin`。该类型不复用 NewAPI 认证流程，接口登录态不可用时进入页面兜底。
 - **页面签到站点**：通过填写的签到页链接查找按钮完成签到。
 - **访问站点**：只访问页面并记录结果。
 
@@ -94,7 +95,7 @@
 - `domain`：站点域名。
 - `name`：站点展示名称。
 - `enabled`：是否启用。
-- `type`：站点类型，通常为 `auto`、`newapi`、`sub2api`、`zenapi`、`infinite-canvas`、`deeix-chat`、`localapi`、`points-checkin`。
+- `type`：站点类型，通常为 `auto`、`newapi`、`sub2api`、`zenapi`、`infinite-canvas`、`deeix-chat`、`localapi`、`points-checkin`、`sota-agent`。
 - `mode`：站点模式，访问模式为 `visit`。
 - `pageUrl`：签到页链接。
 - `autoSignTime`：每日签到时间。
@@ -145,6 +146,7 @@ auth-cache-crypto.js   认证缓存加解密
 newapi-auth.js         NewAPI 登录态判断
 zenapi-auth.js         ZenAPI OAuth 工具
 checkin-result.js      签到响应解析
+sota-agent.js          Sota Agent 独立鉴权与响应解析
 checkin-run-state.js   签到运行态
 balance.js             余额解析
 site-name.js           站点名称获取
@@ -152,6 +154,7 @@ page-status.js         页面失效判断
 tab-options.js         临时标签页策略
 render-guard.js        弹窗渲染并发保护
 backup-config.js       导入导出
+tests/                 Node 内置测试运行器用例
 icons/                 扩展图标
 ```
 

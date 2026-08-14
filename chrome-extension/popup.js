@@ -452,7 +452,8 @@ function getSiteTypeLabel(site) {
     'infinite-canvas': 'Canvas',
     'deeix-chat': 'DEEIX',
     'points-checkin': '积分签到',
-    localapi: 'LocalAPI'
+    localapi: 'LocalAPI',
+    'sota-agent': 'Sota Agent'
   };
   return labels[site?.type] || '自动';
 }
