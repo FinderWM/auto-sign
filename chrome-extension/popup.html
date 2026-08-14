@@ -53,6 +53,7 @@
       --relogin-bg: #ffedd5;
       --relogin-text: #9a3412;
       --shadow: 0 10px 24px rgba(24,24,27,0.06);
+      --site-row-shadow: rgba(24,24,27,0.09);
       --focus-ring: rgba(24,24,27,0.03);
       --focus-outline: #52525b;
       --input-focus-outline: rgba(82,82,91,0.2);
@@ -104,6 +105,7 @@
         --relogin-bg: #3b1f13;
         --relogin-text: #fdba74;
         --shadow: 0 14px 32px rgba(0,0,0,0.34);
+        --site-row-shadow: rgba(0,0,0,0.32);
         --focus-ring: rgba(250,250,250,0.03);
         --focus-outline: #d4d4d8;
         --input-focus-outline: rgba(212,212,216,0.2);
@@ -189,7 +191,11 @@
     }
     .btn:focus-visible,
     .site-link:focus-visible,
+    .site-edit-pick:focus-visible,
+    .site-group-pick:focus-visible,
     .site-continue-pick:focus-visible,
+    .site-stop-pick:focus-visible,
+    .btn-del:focus-visible,
     .toggle:focus-visible,
     .site-mode-select:focus-visible {
       outline: 2px solid var(--focus-outline);
@@ -284,7 +290,30 @@
       border-top: 1px solid var(--border);
     }
 
-    .sites-list { margin-top: 12px; }
+    .site-search { margin-top: 12px; }
+    .site-search-input {
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--input-border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .site-search-input:focus {
+      border-color: var(--focus-outline);
+      box-shadow: 0 0 0 3px var(--input-focus-outline);
+    }
+    .site-search-input::placeholder { color: var(--text-muted); }
+    .site-search-input::-webkit-search-cancel-button { cursor: pointer; }
+    .sites-list { margin-top: 8px; }
+    .site-search-results .drag-handle {
+      visibility: hidden;
+      pointer-events: none;
+    }
 
     /* 分组 tab */
     .group-tabs {
@@ -343,19 +372,37 @@
     }
     .site-item .drag-handle:active { cursor: grabbing; }
     .site-item .site-group-pick {
+      width: 30px;
+      height: 22px;
       flex-shrink: 0;
+      padding: 0;
       background: none;
       border: none;
       color: var(--text-muted);
       cursor: pointer;
-      font-size: 11px;
-      padding: 2px 4px;
+      font-size: 10px;
+      font-weight: 600;
       border-radius: 6px;
     }
     .site-item .site-group-pick:hover { color: var(--primary); background: var(--neutral-bg); }
+    .site-item .site-edit-pick {
+      width: 30px;
+      height: 22px;
+      flex-shrink: 0;
+      padding: 0;
+      border: none;
+      border-radius: 6px;
+      background: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .site-item .site-edit-pick:hover { color: var(--primary); background: var(--neutral-bg); }
+    .site-item .site-edit-pick:active { transform: scale(0.96); }
     .site-item .site-continue-pick {
       flex-shrink: 0;
-      min-width: 22px;
+      min-width: 44px;
       height: 22px;
       padding: 0 6px;
       background: none;
@@ -401,12 +448,16 @@
       display: flex;
       align-items: center;
       padding: 8px 10px;
-      margin-bottom: 6px;
+      margin-bottom: 9px;
       background: var(--surface-muted);
+      border: 1px solid var(--input-border);
       border-radius: 8px;
+      box-shadow: 0 1px 3px var(--site-row-shadow);
       font-size: 12px;
       gap: 8px;
+      transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
     }
+    .site-item:last-child { margin-bottom: 0; }
     .site-item .toggle {
       accent-color: var(--control-accent);
       cursor: pointer;
@@ -420,24 +471,40 @@
       gap: 4px;
     }
     .site-item .site-primary-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
       min-width: 0;
     }
     .site-item .site-name {
-      flex: 1;
+      display: block;
+      width: 100%;
       min-width: 0;
-      font-weight: 500;
       overflow: hidden;
+      font-weight: 500;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .site-item .site-link-row {
+      min-width: 0;
+    }
+    .site-item .site-page-url {
+      display: block;
+      width: 100%;
+      min-width: 0;
+      padding: 2px 6px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--text-muted);
+      font: 9px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: text;
     }
     .site-item .site-secondary-row {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 3px 4px;
       min-width: 0;
     }
     .site-item .site-link {
@@ -471,13 +538,34 @@
       box-shadow: inset 0 0 0 1px rgba(154, 52, 18, 0.16);
     }
     .site-item:hover {
-      background: var(--surface-subtle);
+      background: var(--surface);
+      border-color: var(--text-muted);
+      box-shadow: 0 3px 8px var(--site-row-shadow);
     }
     .site-meta {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .site-item .btn-del {
+      width: 24px;
+      height: 22px;
+      padding: 0;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
+      justify-content: center;
+      border-radius: 6px;
+    }
+    .site-item .btn-del:hover {
+      background: var(--danger-bg);
+      color: var(--danger-text);
+    }
+    .site-delete-icon {
+      display: block;
+      width: 14px;
+      height: 14px;
+      pointer-events: none;
     }
     .site-status {
       padding: 3px 10px;
@@ -504,6 +592,7 @@
     .site-status.checking { background: var(--warning-bg); color: var(--warning-text); }
     .site-status.pending { background: var(--warning-bg); color: var(--warning-text); }
     .site-balance {
+      flex-shrink: 0;
       padding: 3px 8px;
       border-radius: 10px;
       font-size: 10px;
@@ -537,20 +626,69 @@
       color: var(--relogin-text);
     }
     .api-toggle {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .site-api-mode {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .api-slider {
+      position: relative;
+      width: 44px;
+      height: 18px;
+      flex-shrink: 0;
+      border-radius: 999px;
+      background: var(--input-border);
+      box-shadow: inset 0 0 0 1px var(--border);
+      transition: background-color 0.18s, box-shadow 0.18s;
+    }
+    .api-slider::after {
+      position: absolute;
+      top: 2px;
+      left: 2px;
       width: 14px;
       height: 14px;
-      margin: 0;
-      cursor: pointer;
-      flex-shrink: 0;
+      border-radius: 50%;
+      background: var(--surface);
+      box-shadow: 0 1px 2px var(--site-row-shadow);
+      content: '';
+      transition: transform 0.18s;
+    }
+    .site-api-mode:hover .api-slider { box-shadow: inset 0 0 0 1px var(--text-muted); }
+    .api-toggle:checked + .api-slider {
+      background: var(--primary);
+      box-shadow: inset 0 0 0 1px var(--primary);
+    }
+    .api-toggle:checked + .api-slider::after { transform: translateX(26px); }
+    .api-toggle:focus-visible + .api-slider {
+      outline: 2px solid var(--focus-outline);
+      outline-offset: 2px;
     }
     .api-label {
-      padding: 2px 6px;
-      border-radius: 8px;
-      font-size: 9px;
-      font-weight: 600;
-      flex-shrink: 0;
-      background: var(--neutral-bg);
-      color: var(--neutral-text);
+      position: absolute;
+      top: 50%;
+      right: 4px;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0;
+      line-height: 1;
+      color: var(--text-soft);
+      pointer-events: none;
+      transform: translateY(-50%);
+      white-space: nowrap;
+    }
+    .api-toggle:checked ~ .api-label {
+      right: auto;
+      left: 6px;
+      color: var(--on-primary);
     }
     .empty-state {
       padding: 16px 10px 8px;
@@ -617,6 +755,118 @@
       padding: 8px;
     }
     .btn-cancel { background: var(--secondary-button-bg); color: var(--secondary-button-text); }
+
+    /* 分组设置对话框 */
+    .group-dialog-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background: rgba(24, 24, 27, 0.42);
+    }
+    .group-dialog-backdrop.show { display: flex; }
+    .group-dialog {
+      width: min(100%, 360px);
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      color: var(--text);
+    }
+    .group-dialog-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .group-dialog-title {
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .group-dialog-site {
+      margin-top: 3px;
+      color: var(--text-muted);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .group-dialog-close {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 20px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .group-dialog-close:hover { background: var(--surface-subtle); color: var(--text); }
+    .group-dialog-close:focus-visible {
+      outline: 2px solid var(--focus-outline);
+      outline-offset: 2px;
+    }
+    .group-dialog-field { margin-top: 14px; }
+    .group-dialog-field label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .group-dialog-field select,
+    .group-dialog-field input[type="text"] {
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--input-border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12px;
+      outline: none;
+    }
+    .group-dialog-field select:focus,
+    .group-dialog-field input[type="text"]:focus {
+      border-color: var(--focus-outline);
+      box-shadow: 0 0 0 3px var(--input-focus-outline);
+    }
+    .group-dialog-field input[type="text"]::placeholder { color: var(--text-muted); }
+    .group-dialog-hint {
+      margin-top: 8px;
+      color: var(--text-muted);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+    .group-dialog-error {
+      min-height: 14px;
+      margin-top: 8px;
+      color: var(--danger-text);
+      font-size: 10px;
+      line-height: 1.4;
+    }
+    .group-dialog-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .group-dialog-actions .btn { flex: 1; padding: 8px; }
+    .group-dialog-actions .btn:disabled,
+    .group-dialog-close:disabled,
+    .group-dialog-field select:disabled,
+    .group-dialog-field input:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
 
     .last-check {
       text-align: center;
@@ -742,6 +992,18 @@
         继续签到（仅未完成）
       </button>
 
+      <div class="site-search">
+        <input
+          class="site-search-input"
+          id="siteSearchInput"
+          type="search"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="搜索站点"
+          placeholder="搜索当前分组的站点名称或域名"
+        >
+      </div>
+
       <div class="sites-list" id="sitesList"></div>
 
       <button class="btn btn-sm btn-add" id="showAddBtn">+ 添加站点</button>
@@ -780,6 +1042,92 @@
     </div>
 
     <div class="footer" id="versionFooter">v1.10</div>
+  </div>
+
+  <div class="group-dialog-backdrop" id="groupDialog" aria-hidden="true">
+    <form class="group-dialog" id="groupDialogForm" role="dialog" aria-modal="true" aria-labelledby="groupDialogTitle">
+      <div class="group-dialog-header">
+        <div>
+          <div class="group-dialog-title" id="groupDialogTitle">设置站点分组</div>
+          <div class="group-dialog-site" id="groupDialogSite"></div>
+        </div>
+        <button
+          class="group-dialog-close"
+          id="groupDialogClose"
+          type="button"
+          aria-label="关闭分组设置"
+          title="关闭"
+        >×</button>
+      </div>
+
+      <div class="group-dialog-field">
+        <label for="groupExistingSelect">已有分组</label>
+        <select id="groupExistingSelect">
+          <option value="">未分组</option>
+        </select>
+      </div>
+
+      <div class="group-dialog-field">
+        <label for="groupNewInput">新分组名称</label>
+        <input type="text" id="groupNewInput" autocomplete="off" placeholder="输入名称后创建新分组">
+      </div>
+      <div class="group-dialog-hint">填写新名称后优先使用输入内容；留空则使用上方选择。</div>
+
+      <div class="group-dialog-actions">
+        <button class="btn btn-cancel" id="groupDialogCancel" type="button">取消</button>
+        <button class="btn btn-primary" id="groupDialogSave" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="group-dialog-backdrop" id="siteEditDialog" aria-hidden="true">
+    <form
+      class="group-dialog"
+      id="siteEditDialogForm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="siteEditDialogTitle"
+    >
+      <div class="group-dialog-header">
+        <div>
+          <div class="group-dialog-title" id="siteEditDialogTitle">编辑站点</div>
+          <div class="group-dialog-site" id="siteEditDomain"></div>
+        </div>
+        <button
+          class="group-dialog-close"
+          id="siteEditDialogClose"
+          type="button"
+          aria-label="关闭站点编辑"
+          title="关闭"
+        >×</button>
+      </div>
+
+      <div class="group-dialog-field">
+        <label for="siteEditName">站点名称</label>
+        <input type="text" id="siteEditName" autocomplete="off">
+      </div>
+
+      <div class="group-dialog-field">
+        <label for="siteEditPageUrl">站点页面链接</label>
+        <input type="text" id="siteEditPageUrl" autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="group-dialog-field">
+        <label for="siteEditMode">签到模式</label>
+        <select id="siteEditMode">
+          <option value="checkin">按钮/API</option>
+          <option value="visit">仅访问</option>
+          <option value="login">登录签到</option>
+          <option value="relogin">重登签到</option>
+        </select>
+      </div>
+      <div class="group-dialog-error" id="siteEditDialogError" role="alert" aria-live="polite"></div>
+
+      <div class="group-dialog-actions">
+        <button class="btn btn-cancel" id="siteEditDialogCancel" type="button">取消</button>
+        <button class="btn btn-primary" id="siteEditDialogSave" type="submit">保存</button>
+      </div>
+    </form>
   </div>
 
   <script src="vendor/Sortable.min.js"></script>

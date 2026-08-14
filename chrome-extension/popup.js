@@ -3,6 +3,10 @@ let addingSite = false;
 const sitesRenderGuard = createLatestRenderGuard();
 let singleSiteRunningIds = new Set();
 let singleSiteCancellingIds = new Set();
+let groupDialogContext = null;
+let groupDialogSaving = false;
+let siteEditDialogContext = null;
+let siteEditDialogSaving = false;
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', () => {
@@ -30,6 +34,7 @@ function setupEventListeners() {
   document.getElementById('newDomain').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleAddSite();
   });
+  document.getElementById('siteSearchInput').addEventListener('input', handleSiteSearchInput);
 
   // 导出/导入
   document.getElementById('exportBtn').addEventListener('click', handleExport);
@@ -39,6 +44,46 @@ function setupEventListeners() {
   document.getElementById('importFile').addEventListener('change', handleImport);
   document.getElementById('saveTimeBtn').addEventListener('click', handleSaveAutoSignTime);
   document.getElementById('clearLogsBtn').addEventListener('click', handleClearLogs);
+  setupGroupDialogEvents();
+  setupSiteEditDialogEvents();
+}
+
+function setupGroupDialogEvents() {
+  const dialog = document.getElementById('groupDialog');
+  const existingSelect = document.getElementById('groupExistingSelect');
+
+  document.getElementById('groupDialogForm').addEventListener('submit', handleGroupDialogSubmit);
+  document.getElementById('groupDialogCancel').addEventListener('click', () => closeGroupDialog());
+  document.getElementById('groupDialogClose').addEventListener('click', () => closeGroupDialog());
+  existingSelect.addEventListener('change', () => {
+    document.getElementById('groupNewInput').value = '';
+  });
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) closeGroupDialog();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && groupDialogContext) {
+      event.preventDefault();
+      closeGroupDialog();
+    }
+  });
+}
+
+function setupSiteEditDialogEvents() {
+  const dialog = document.getElementById('siteEditDialog');
+
+  document.getElementById('siteEditDialogForm').addEventListener('submit', handleSiteEditDialogSubmit);
+  document.getElementById('siteEditDialogCancel').addEventListener('click', () => closeSiteEditDialog());
+  document.getElementById('siteEditDialogClose').addEventListener('click', () => closeSiteEditDialog());
+  dialog.addEventListener('click', (event) => {
+    if (event.target === dialog) closeSiteEditDialog();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && siteEditDialogContext) {
+      event.preventDefault();
+      closeSiteEditDialog();
+    }
+  });
 }
 
 // 加载签到状态
@@ -183,12 +228,44 @@ function shouldHighlightHumanVerification(result) {
   return /人机验证|安全验证|Turnstile|captcha|验证码|请完成验证|verify you are human/i.test(result.message);
 }
 
+function createTrashIcon() {
+  const svgNamespace = 'http://www.w3.org/2000/svg';
+  const icon = document.createElementNS(svgNamespace, 'svg');
+  icon.classList.add('site-delete-icon');
+  icon.setAttribute('viewBox', '0 0 24 24');
+  icon.setAttribute('fill', 'none');
+  icon.setAttribute('stroke', 'currentColor');
+  icon.setAttribute('stroke-width', '2');
+  icon.setAttribute('stroke-linecap', 'round');
+  icon.setAttribute('stroke-linejoin', 'round');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.setAttribute('focusable', 'false');
+
+  const path = document.createElementNS(svgNamespace, 'path');
+  const trashPath = [
+    'M3 6h18',
+    'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6',
+    'M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2',
+    'M10 11v6',
+    'M14 11v6'
+  ].join('');
+  path.setAttribute('d', trashPath);
+  icon.appendChild(path);
+  return icon;
+}
+
 // 渲染站点列表
 const UNGROUPED_LABEL = '默认';
 let sortableInstances = [];
 let activeGroup = null;
+let siteSearchQuery = '';
 let draggingDomain = null;
 let tabDropHandled = false;
+
+function handleSiteSearchInput(event) {
+  siteSearchQuery = event.target.value;
+  renderSites(undefined, { preserveScroll: true });
+}
 
 async function renderSites(results, { preserveScroll = false } = {}) {
   const renderToken = sitesRenderGuard.begin();
@@ -210,14 +287,6 @@ async function renderSites(results, { preserveScroll = false } = {}) {
 
   destroySortables();
 
-  if (sites.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.textContent = '暂无站点，添加后即可开始签到';
-    sitesList.replaceChildren(empty);
-    return;
-  }
-
   function buildItem(site) {
     const siteId = getRawSiteId(site);
     const result = results[siteId];
@@ -236,6 +305,9 @@ async function renderSites(results, { preserveScroll = false } = {}) {
 
     const primaryRow = document.createElement('div');
     primaryRow.className = 'site-primary-row';
+
+    const linkRow = document.createElement('div');
+    linkRow.className = 'site-link-row';
 
     const secondaryRow = document.createElement('div');
     secondaryRow.className = 'site-secondary-row';
@@ -258,22 +330,29 @@ async function renderSites(results, { preserveScroll = false } = {}) {
     toggle.addEventListener('change', () => toggleSiteByDomain(site.domain, toggle.checked));
 
     // 站点名
+    const openPageUrl = getSitePageUrl(site);
+    const recordedPageUrl = String(site.pageUrl || openPageUrl);
+    const displayName = site.name || site.domain;
     const name = document.createElement('button');
     name.type = 'button';
     name.className = 'site-name site-link';
-    name.textContent = site.name || site.domain;
-    name.title = `打开 ${getSitePageUrl(site)}`;
+    name.textContent = displayName;
+    name.title = `${displayName}\n打开 ${openPageUrl}`;
     name.addEventListener('click', () => openSitePage(site));
 
+    const pageUrl = document.createElement('span');
+    pageUrl.className = 'site-page-url';
+    pageUrl.textContent = recordedPageUrl;
+    pageUrl.title = recordedPageUrl;
+
+    primaryRow.appendChild(name);
+    linkRow.appendChild(pageUrl);
+    let verificationHint = null;
     if (shouldHighlightHumanVerification(result)) {
-      const verificationHint = document.createElement('span');
+      verificationHint = document.createElement('span');
       verificationHint.className = 'site-alert-badge human-verification';
       verificationHint.textContent = '需人机验证';
       verificationHint.title = result.message;
-      primaryRow.appendChild(name);
-      primaryRow.appendChild(verificationHint);
-    } else {
-      primaryRow.appendChild(name);
     }
 
     // 状态
@@ -311,13 +390,25 @@ async function renderSites(results, { preserveScroll = false } = {}) {
     apiToggle.type = 'checkbox';
     apiToggle.className = 'api-toggle';
     apiToggle.checked = site.useApi === true;
+    apiToggle.setAttribute('aria-label', '签到方式：页面或 API');
     apiToggle.title = site.useApi ? '点击关闭接口调用（仅页面点击）' : '点击启用接口调用（可能有封号风险）';
     apiToggle.addEventListener('change', () => toggleSiteApiByDomain(site.domain, apiToggle.checked));
+
+    const apiSlider = document.createElement('span');
+    apiSlider.className = 'api-slider';
+    apiSlider.setAttribute('aria-hidden', 'true');
 
     const apiLabel = document.createElement('span');
     apiLabel.className = 'api-label';
     apiLabel.textContent = site.useApi ? 'API' : '页面';
     apiLabel.title = site.useApi ? '当前使用接口调用' : '当前使用页面点击';
+
+    const apiMode = document.createElement('label');
+    apiMode.className = 'site-api-mode';
+    apiMode.title = apiToggle.title;
+    apiMode.appendChild(apiToggle);
+    apiMode.appendChild(apiSlider);
+    apiMode.appendChild(apiLabel);
 
     const balance = document.createElement('span');
     balance.className = 'site-balance';
@@ -330,14 +421,21 @@ async function renderSites(results, { preserveScroll = false } = {}) {
     const groupPick = document.createElement('button');
     groupPick.type = 'button';
     groupPick.className = 'site-group-pick';
-    groupPick.textContent = '🏷';
+    groupPick.textContent = '分组';
     groupPick.title = '设置分组';
     groupPick.addEventListener('click', () => handlePickGroup(site.domain));
+
+    const editPick = document.createElement('button');
+    editPick.type = 'button';
+    editPick.className = 'site-edit-pick';
+    editPick.textContent = '编辑';
+    editPick.title = '编辑站点信息';
+    editPick.addEventListener('click', () => handleEditSite(site.domain));
 
     const continuePick = document.createElement('button');
     continuePick.type = 'button';
     continuePick.className = 'site-continue-pick';
-    continuePick.textContent = '续';
+    continuePick.textContent = '从此续';
     continuePick.disabled = !enabled || batchRunning;
     continuePick.title = !enabled
       ? '站点已禁用'
@@ -356,25 +454,29 @@ async function renderSites(results, { preserveScroll = false } = {}) {
 
     // 删除按钮
     const del = document.createElement('button');
+    del.type = 'button';
     del.className = 'btn-del';
-    del.textContent = '\u00d7';
+    del.setAttribute('aria-label', '删除站点');
     del.title = '删除站点';
+    del.appendChild(createTrashIcon());
     del.addEventListener('click', () => removeSiteByDomain(site.domain));
 
     item.appendChild(handle);
     item.appendChild(toggle);
     secondaryRow.appendChild(mode);
     if (!['visit', 'login', 'relogin'].includes(site.mode)) {
-      secondaryRow.appendChild(apiToggle);
-      secondaryRow.appendChild(apiLabel);
+      secondaryRow.appendChild(apiMode);
     }
     if (result?.balance) secondaryRow.appendChild(balance);
+    if (verificationHint) secondaryRow.appendChild(verificationHint);
+    secondaryRow.appendChild(editPick);
+    secondaryRow.appendChild(groupPick);
+    secondaryRow.appendChild(status);
+    if (singleSiteRunning) secondaryRow.appendChild(stopPick);
     content.appendChild(primaryRow);
+    content.appendChild(linkRow);
     content.appendChild(secondaryRow);
-    meta.appendChild(status);
-    if (singleSiteRunning) meta.appendChild(stopPick);
     meta.appendChild(continuePick);
-    meta.appendChild(groupPick);
     meta.appendChild(del);
     item.appendChild(content);
     item.appendChild(meta);
@@ -422,14 +524,31 @@ async function renderSites(results, { preserveScroll = false } = {}) {
 
   // 当前组的站点列表
   const active = groups.find(g => g.name === activeGroup) || groups[0];
+  const normalizedSearchQuery = normalizeSiteSearchText(siteSearchQuery);
+  const visibleSites = normalizedSearchQuery
+    ? filterSitesBySearch(active.sites, normalizedSearchQuery)
+    : active.sites;
   const body = document.createElement('div');
-  body.className = 'site-group-body';
+  body.className = normalizedSearchQuery
+    ? 'site-group-body site-search-results'
+    : 'site-group-body';
   body.dataset.group = active.name === UNGROUPED_LABEL ? '' : active.name;
-  active.sites.forEach(site => body.appendChild(buildItem(site)));
+  if (visibleSites.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = normalizedSearchQuery
+      ? '当前分组未找到匹配的站点'
+      : sites.length === 0
+      ? '暂无站点，添加后即可开始签到'
+      : '当前分组暂无站点';
+    body.appendChild(empty);
+  } else {
+    visibleSites.forEach(site => body.appendChild(buildItem(site)));
+  }
   fragment.appendChild(body);
 
   sitesList.replaceChildren(fragment);
-  setupSortables();
+  if (!normalizedSearchQuery) setupSortables();
 
   if (preserveScroll) {
     requestAnimationFrame(() => {
@@ -438,6 +557,20 @@ async function renderSites(results, { preserveScroll = false } = {}) {
       }
     });
   }
+}
+
+function normalizeSiteSearchText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function filterSitesBySearch(sites, query) {
+  const keywords = normalizeSiteSearchText(query).split(/\s+/).filter(Boolean);
+  if (keywords.length === 0) return sites;
+
+  return sites.filter(site => {
+    const searchableText = normalizeSiteSearchText(`${site?.name || ''} ${site?.domain || ''}`);
+    return keywords.every(keyword => searchableText.includes(keyword));
+  });
 }
 
 function getSiteTypeLabel(site) {
@@ -466,8 +599,8 @@ function getSiteGroup(site) {
 
 // 按 group 归类，保留各组首次出现顺序；默认组始终排在最前
 function groupSites(sites) {
-  const order = [];
-  const map = new Map();
+  const order = [UNGROUPED_LABEL];
+  const map = new Map([[UNGROUPED_LABEL, []]]);
   for (const site of sites) {
     const key = getSiteGroup(site);
     if (!map.has(key)) {
@@ -597,8 +730,119 @@ async function removeSiteByDomain(domain) {
   renderSites();
 }
 
-// 设置站点分组：弹窗选择已有分组或新建
+async function handleEditSite(domain) {
+  const returnFocus = document.activeElement;
+  const sites = await loadRawSites();
+  const site = sites.find(item => item.domain === domain);
+  if (!site) return;
+
+  openSiteEditDialog(site, returnFocus);
+}
+
+function openSiteEditDialog(site, returnFocus) {
+  const dialog = document.getElementById('siteEditDialog');
+  const nameInput = document.getElementById('siteEditName');
+
+  nameInput.value = getSiteDisplayName(site);
+  document.getElementById('siteEditPageUrl').value = String(site.pageUrl || getSitePageUrl(site));
+  document.getElementById('siteEditMode').value = normalizeEditableSiteMode(site.mode);
+  document.getElementById('siteEditDomain').textContent = site.domain;
+  siteEditDialogContext = { domain: site.domain, returnFocus };
+  setSiteEditDialogError('');
+  setSiteEditDialogBusy(false);
+
+  dialog.classList.add('show');
+  dialog.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => nameInput.focus());
+}
+
+function normalizeEditableSiteMode(mode) {
+  return ['visit', 'login', 'relogin'].includes(mode) ? mode : 'checkin';
+}
+
+async function handleSiteEditDialogSubmit(event) {
+  event.preventDefault();
+  if (!siteEditDialogContext || siteEditDialogSaving) return;
+
+  const context = siteEditDialogContext;
+  const name = document.getElementById('siteEditName').value.trim();
+  const pageUrlInput = document.getElementById('siteEditPageUrl').value.trim();
+  const mode = document.getElementById('siteEditMode').value;
+
+  setSiteEditDialogError('');
+  if (!name) {
+    setSiteEditDialogError('请输入站点名称');
+    document.getElementById('siteEditName').focus();
+    return;
+  }
+
+  const parsedSite = parseSiteInput(pageUrlInput, mode);
+  if (!parsedSite) {
+    setSiteEditDialogError('请输入有效的站点页面链接');
+    document.getElementById('siteEditPageUrl').focus();
+    return;
+  }
+  if (parsedSite.domain !== context.domain) {
+    setSiteEditDialogError('站点域名不可修改，请添加新站点');
+    document.getElementById('siteEditPageUrl').focus();
+    return;
+  }
+
+  setSiteEditDialogBusy(true);
+  try {
+    const sites = await loadRawSites();
+    const site = sites.find(item => item.domain === context.domain);
+    if (!site) throw new Error('站点不存在');
+
+    site.name = name;
+    site.pageUrl = parsedSite.pageUrl || getSitePageUrl(parsedSite);
+    if (mode === 'checkin') delete site.mode;
+    else site.mode = mode;
+    await saveSitesConfig(sites);
+
+    closeSiteEditDialog(true);
+    await renderSites(undefined, { preserveScroll: true });
+  } catch (error) {
+    setSiteEditDialogError('保存失败: ' + error.message);
+  } finally {
+    setSiteEditDialogBusy(false);
+  }
+}
+
+function setSiteEditDialogError(message) {
+  document.getElementById('siteEditDialogError').textContent = message;
+}
+
+function setSiteEditDialogBusy(busy) {
+  siteEditDialogSaving = busy;
+  document.getElementById('siteEditName').disabled = busy;
+  document.getElementById('siteEditPageUrl').disabled = busy;
+  document.getElementById('siteEditMode').disabled = busy;
+  document.getElementById('siteEditDialogCancel').disabled = busy;
+  document.getElementById('siteEditDialogClose').disabled = busy;
+  const saveButton = document.getElementById('siteEditDialogSave');
+  saveButton.disabled = busy;
+  saveButton.textContent = busy ? '保存中...' : '保存';
+}
+
+function closeSiteEditDialog(force = false) {
+  if (!siteEditDialogContext || (siteEditDialogSaving && !force)) return;
+
+  const dialog = document.getElementById('siteEditDialog');
+  const returnFocus = siteEditDialogContext.returnFocus;
+  siteEditDialogContext = null;
+  dialog.classList.remove('show');
+  dialog.setAttribute('aria-hidden', 'true');
+  setSiteEditDialogError('');
+
+  if (returnFocus && document.contains(returnFocus)) {
+    returnFocus.focus();
+  }
+}
+
+// 设置站点分组：打开分组选择对话框
 async function handlePickGroup(domain) {
+  const returnFocus = document.activeElement;
   const sites = await loadRawSites();
   const site = sites.find(s => s.domain === domain);
   if (!site) return;
@@ -606,20 +850,90 @@ async function handlePickGroup(domain) {
   const existing = Array.from(new Set(
     sites.map(s => String(s.group || '').trim()).filter(Boolean)
   ));
+  openGroupDialog(site, existing, returnFocus);
+}
+
+function openGroupDialog(site, existingGroups, returnFocus) {
+  const dialog = document.getElementById('groupDialog');
+  const existingSelect = document.getElementById('groupExistingSelect');
   const current = String(site.group || '').trim();
-  const hint = existing.length
-    ? `现有分组：${existing.join('、')}\n\n输入分组名（留空=未分组）：`
-    : '输入分组名（留空=未分组）：';
-  const input = prompt(hint, current);
-  if (input === null) return; // 取消
 
-  const next = input.trim();
-  if (next === current) return;
-  if (next) site.group = next;
-  else delete site.group;
+  existingSelect.replaceChildren();
+  appendGroupOption(existingSelect, '', '未分组');
+  existingGroups.forEach(groupName => appendGroupOption(existingSelect, groupName, groupName));
+  existingSelect.value = current;
 
-  await saveSitesConfig(sites);
-  await renderSites(undefined, { preserveScroll: true });
+  document.getElementById('groupDialogSite').textContent = getSiteDisplayName(site);
+  document.getElementById('groupNewInput').value = '';
+  groupDialogContext = { domain: site.domain, current, returnFocus };
+  setGroupDialogBusy(false);
+
+  dialog.classList.add('show');
+  dialog.setAttribute('aria-hidden', 'false');
+  requestAnimationFrame(() => existingSelect.focus());
+}
+
+function appendGroupOption(select, value, label) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  select.appendChild(option);
+}
+
+async function handleGroupDialogSubmit(event) {
+  event.preventDefault();
+  if (!groupDialogContext || groupDialogSaving) return;
+
+  const context = groupDialogContext;
+  const selectedGroup = document.getElementById('groupExistingSelect').value.trim();
+  const newGroup = document.getElementById('groupNewInput').value.trim();
+  const nextGroup = newGroup || selectedGroup;
+
+  setGroupDialogBusy(true);
+  try {
+    const sites = await loadRawSites();
+    const site = sites.find(item => item.domain === context.domain);
+    if (!site) throw new Error('站点不存在');
+
+    const currentGroup = String(site.group || '').trim();
+    if (nextGroup !== currentGroup) {
+      if (nextGroup) site.group = nextGroup;
+      else delete site.group;
+      await saveSitesConfig(sites);
+    }
+
+    closeGroupDialog(true);
+    await renderSites(undefined, { preserveScroll: true });
+  } catch (error) {
+    alert('保存分组失败: ' + error.message);
+  } finally {
+    setGroupDialogBusy(false);
+  }
+}
+
+function setGroupDialogBusy(busy) {
+  groupDialogSaving = busy;
+  document.getElementById('groupExistingSelect').disabled = busy;
+  document.getElementById('groupNewInput').disabled = busy;
+  document.getElementById('groupDialogCancel').disabled = busy;
+  document.getElementById('groupDialogClose').disabled = busy;
+  const saveButton = document.getElementById('groupDialogSave');
+  saveButton.disabled = busy;
+  saveButton.textContent = busy ? '保存中...' : '保存';
+}
+
+function closeGroupDialog(force = false) {
+  if (!groupDialogContext || (groupDialogSaving && !force)) return;
+
+  const dialog = document.getElementById('groupDialog');
+  const returnFocus = groupDialogContext.returnFocus;
+  groupDialogContext = null;
+  dialog.classList.remove('show');
+  dialog.setAttribute('aria-hidden', 'true');
+
+  if (returnFocus && document.contains(returnFocus)) {
+    returnFocus.focus();
+  }
 }
 
 function getSiteDisplayName(site) {
