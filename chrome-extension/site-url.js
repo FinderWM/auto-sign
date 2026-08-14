@@ -1,5 +1,6 @@
 (function(root) {
   const DEFAULT_SITE_PAGE_PATH = '/console/personal';
+  const FENGWIND_WELFARE_DOMAIN = 'api-welfalre.fengwind.com';
 
   function normalizeUrlInput(input) {
     const trimmed = String(input || '').trim();
@@ -24,7 +25,8 @@
       'deeix-chat',
       'points-checkin',
       'localapi',
-      'sota-agent'
+      'sota-agent',
+      'fengwind-welfare'
     ].includes(type) ? type : 'auto';
   }
 
@@ -35,6 +37,12 @@
       return { ...site, type: normalizedType };
     }
     return site;
+  }
+
+  function inferSiteType(domain, type) {
+    return type === 'auto' && domain === FENGWIND_WELFARE_DOMAIN
+      ? 'fengwind-welfare'
+      : type;
   }
 
   function parseSiteInput(input, mode = 'checkin', type = 'auto') {
@@ -53,7 +61,7 @@
           name: domain,
           enabled: true,
           pageUrl: url.href
-        }, mode), type);
+        }, mode), inferSiteType(domain, type));
       } catch (e) {
         return null;
       }
@@ -65,7 +73,7 @@
       domain,
       name: domain,
       enabled: true
-    }, mode), type);
+    }, mode), inferSiteType(domain, type));
   }
 
   function getPointsCheckinDefaultPageUrl(domain) {
@@ -124,6 +132,9 @@
       if (site?.type === 'sota-agent' && site.domain === 'www.sotamodel.net') {
         return `https://${site.domain}/agents`;
       }
+      if (site?.type === 'fengwind-welfare' && site.domain === 'api-welfalre.fengwind.com') {
+        return `https://${site.domain}/`;
+      }
       return site.pageUrl;
     }
     if (site?.type === 'deeix-chat') return `https://${site.domain}/chat`;
@@ -133,6 +144,9 @@
     if (site?.type === 'points-checkin') return getPointsCheckinDefaultPageUrl(site.domain);
     if (site?.type === 'localapi') return getLocalApiDefaultPageUrl(site.domain);
     if (site?.type === 'sota-agent' && site.domain === 'www.sotamodel.net') return `https://${site.domain}/agents`;
+    if (site?.type === 'fengwind-welfare' && site.domain === 'api-welfalre.fengwind.com') {
+      return `https://${site.domain}/`;
+    }
     return `https://${site.domain}${DEFAULT_SITE_PAGE_PATH}`;
   }
 

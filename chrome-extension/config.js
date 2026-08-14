@@ -11,6 +11,11 @@ const GLOBAL_CONFIG = {
 const SOTA_AGENT_SITE_TYPE = 'sota-agent';
 const SOTA_AGENT_PAGE_PATH = '/agents';
 const SOTA_AGENT_CHECK_IN_PATH = '/api/user/sota-agent-checkin';
+const FENGWIND_WELFARE_SITE_TYPE = 'fengwind-welfare';
+const FENGWIND_WELFARE_DOMAIN = 'api-welfalre.fengwind.com';
+const FENGWIND_WELFARE_PAGE_PATH = '/';
+const FENGWIND_WELFARE_CHECK_IN_PATH = '/api/checkin';
+const FENGWIND_WELFARE_STATUS_PATH = '/api/checkin/status';
 
 function normalizeSiteType(type) {
   return [
@@ -22,7 +27,8 @@ function normalizeSiteType(type) {
     'deeix-chat',
     'points-checkin',
     'localapi',
-    SOTA_AGENT_SITE_TYPE
+    SOTA_AGENT_SITE_TYPE,
+    FENGWIND_WELFARE_SITE_TYPE
   ].includes(type) ? type : 'newapi';
 }
 
@@ -96,7 +102,7 @@ function normalizeSitePageUrlForType(pageUrl, domain, type, defaultPagePath) {
     } catch (e) {}
   }
 
-  if (type === SOTA_AGENT_SITE_TYPE) {
+  if (type === SOTA_AGENT_SITE_TYPE || type === FENGWIND_WELFARE_SITE_TYPE) {
     return defaultUrl;
   }
 
@@ -108,9 +114,13 @@ function buildSiteConfig(site) {
   const d = site.domain;
   const mode = normalizeSiteMode(site.mode);
   const normalizedType = normalizeSiteType(site.type);
-  const exactSiteType = normalizedType === SOTA_AGENT_SITE_TYPE && d !== 'www.sotamodel.net'
-    ? 'newapi'
-    : normalizedType;
+  let exactSiteType = normalizedType;
+  if (normalizedType === SOTA_AGENT_SITE_TYPE && d !== 'www.sotamodel.net') {
+    exactSiteType = 'newapi';
+  }
+  if (normalizedType === FENGWIND_WELFARE_SITE_TYPE && d !== FENGWIND_WELFARE_DOMAIN) {
+    exactSiteType = 'newapi';
+  }
   const type = mode === 'visit' ? 'visit' : exactSiteType;
   const apiBasePathByType = {
     sub2api: '/api/v1/user/check-in',
@@ -120,7 +130,8 @@ function buildSiteConfig(site) {
     // Cookie 会话 + LinuxDO OAuth + /api/points/checkin（WisArt 等同协议站点）
     'points-checkin': '/api/points/checkin',
     localapi: '/user/api/checkin',
-    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH
+    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH,
+    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_CHECK_IN_PATH
   };
   const defaultPagePathByType = {
     sub2api: '/check-in',
@@ -129,7 +140,8 @@ function buildSiteConfig(site) {
     'deeix-chat': '/chat',
     'points-checkin': '/#/checkin',
     localapi: '/checkin',
-    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_PAGE_PATH
+    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_PAGE_PATH,
+    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_PAGE_PATH
   };
   const queryPathByType = {
     zenapi: '/api/u/dashboard',
@@ -137,13 +149,21 @@ function buildSiteConfig(site) {
     'deeix-chat': '/api/v1/billing/overview',
     'points-checkin': '/api/auth/me',
     localapi: '/user/api/dashboard',
-    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH
+    [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH,
+    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_STATUS_PATH
   };
   const apiBasePath = apiBasePathByType[type] || '/api/user/checkin';
   const defaultPagePath = defaultPagePathByType[type] || '/console/personal';
   const queryPath = queryPathByType[type] || apiBasePath;
   const defaultUseApi =
-    ['infinite-canvas', 'deeix-chat', 'points-checkin', 'localapi', SOTA_AGENT_SITE_TYPE].includes(type) &&
+    [
+      'infinite-canvas',
+      'deeix-chat',
+      'points-checkin',
+      'localapi',
+      SOTA_AGENT_SITE_TYPE,
+      FENGWIND_WELFARE_SITE_TYPE
+    ].includes(type) &&
     site.useApi !== false;
   const unauthKeywords = ['login', 'relogin'].includes(mode)
     ? ['未登录', '请登录', '登录后', 'Sign in', 'Log in', 'Login']
@@ -191,6 +211,7 @@ async function loadRawSites() {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULT_SITES,
+    FENGWIND_WELFARE_SITE_TYPE,
     SOTA_AGENT_SITE_TYPE,
     buildSiteConfig,
     dedupeSitesByDomain,

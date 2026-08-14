@@ -1,5 +1,7 @@
 // 导入配置
-importScripts('schedule.js', 'config.js', 'site-url.js', 'auth-headers.js', 'auth-cache-crypto.js', 'checkin-result.js', 'sota-agent.js', 'newapi-auth.js', 'zenapi-auth.js', 'tab-options.js', 'site-name.js', 'page-status.js', 'checkin-run-state.js', 'balance.js');
+importScripts('schedule.js', 'config.js', 'site-url.js', 'auth-headers.js', 'auth-cache-crypto.js', 'checkin-result.js',
+  'sota-agent.js', 'fengwind-welfare.js', 'newapi-auth.js', 'zenapi-auth.js', 'tab-options.js', 'site-name.js',
+  'page-status.js', 'checkin-run-state.js', 'balance.js');
 
 const DAILY_CHECK_IN_ALARM = 'dailyCheckIn';
 const PAGE_USABLE_TIMEOUT_MS = 20000;
@@ -25,7 +27,8 @@ const SITE_TYPE_CHECK_IN_HANDLERS = {
   zenapi: checkInZenApiSite,
   'points-checkin': checkInPointsCheckinSite,
   localapi: checkInLocalApiSite,
-  'sota-agent': checkInSotaAgentSite
+  'sota-agent': checkInSotaAgentSite,
+  'fengwind-welfare': checkInFengwindWelfareSite
 };
 const SITE_TYPE_DAILY_LOGIN_HANDLERS = {
   newapi: checkInNewApiDailyLogin
@@ -1120,7 +1123,7 @@ async function maybeUpdateSiteName(site, tabSession = null) {
     mode: site.mode,
     type: site.type,
     pageUrl: site.visitUrl,
-    useApi: site.type === 'sota-agent' ? site.useApi : undefined
+    useApi: ['sota-agent', 'fengwind-welfare'].includes(site.type) ? site.useApi : undefined
   });
 }
 
@@ -1825,10 +1828,14 @@ async function resolveSiteType(site, tabSession = null) {
   if (site.type !== 'auto') return site;
 
   const detectedType = await detectSiteType(site, tabSession);
-  const configuredUseApi = detectedType === 'sota-agent'
-    ? await getConfiguredUseApi(site.cookieDomain)
+  const defaultsToApi = ['sota-agent', 'fengwind-welfare'].includes(detectedType);
+  const storedUseApi = defaultsToApi ? await getConfiguredUseApi(site.cookieDomain) : undefined;
+  const configuredUseApi = defaultsToApi
+    ? (typeof storedUseApi === 'boolean' ? storedUseApi : true)
     : site.useApi;
-  await updateRawSiteType(site.cookieDomain, detectedType);
+  await updateRawSiteType(site.cookieDomain, detectedType, {
+    useApi: defaultsToApi ? configuredUseApi : undefined
+  });
 
   return buildSiteConfig({
     domain: site.cookieDomain,
@@ -1892,6 +1899,9 @@ function getResolvedVisitUrl(site, type) {
   if (type === 'sota-agent' && isSotaAgentDomain(site.cookieDomain)) {
     return `https://${site.cookieDomain}${SOTA_AGENT_PAGE_PATH}`;
   }
+  if (type === 'fengwind-welfare' && isFengwindWelfareDomain(site.cookieDomain)) {
+    return `https://${site.cookieDomain}${FENGWIND_WELFARE_PAGE_PATH}`;
+  }
   return site.visitUrl;
 }
 
@@ -1920,10 +1930,17 @@ async function maybeUpgradeLegacyNewApiSite(site, tabSession = null) {
   }
 
   let forcedUseApi =
-    detectedType === 'sub2api' || detectedType === 'points-checkin' || detectedType === 'localapi'
+    detectedType === 'sub2api' ||
+      detectedType === 'points-checkin' ||
+      detectedType === 'localapi' ||
+      detectedType === 'fengwind-welfare'
       ? true
       : undefined;
   if (detectedType === 'sota-agent') {
+    const configuredUseApi = await getConfiguredUseApi(site.cookieDomain);
+    forcedUseApi = typeof configuredUseApi === 'boolean' ? configuredUseApi : true;
+  }
+  if (detectedType === 'fengwind-welfare') {
     const configuredUseApi = await getConfiguredUseApi(site.cookieDomain);
     forcedUseApi = typeof configuredUseApi === 'boolean' ? configuredUseApi : true;
   }
@@ -1935,6 +1952,8 @@ async function maybeUpgradeLegacyNewApiSite(site, tabSession = null) {
     ? getLocalApiDefaultPageUrl(site.cookieDomain)
     : detectedType === 'sota-agent'
     ? `https://${site.cookieDomain}${SOTA_AGENT_PAGE_PATH}`
+    : detectedType === 'fengwind-welfare'
+    ? `https://${site.cookieDomain}${FENGWIND_WELFARE_PAGE_PATH}`
     : getResolvedVisitUrl(site, detectedType);
 
   const nextSite = buildSiteConfig({
@@ -2159,6 +2178,11 @@ async function detectPointsCheckinFromApi(domain) {
 async function detectSiteType(site, tabSession = null) {
   const urlHint = detectSiteTypeFromUrl(site.visitUrl);
 
+  if (urlHint === 'fengwind-welfare') {
+    console.log(`${site.siteName} URL 精确识别为 Fengwind 福利站`);
+    return 'fengwind-welfare';
+  }
+
   if (urlHint === 'sota-agent') {
     console.log(`${site.siteName} URL 精确识别为 Sota Agent`);
     return 'sota-agent';
@@ -2368,6 +2392,7 @@ async function detectSiteType(site, tabSession = null) {
 function detectSiteTypeFromUrl(url) {
   try {
     const parsed = new URL(url || '');
+    if (isFengwindWelfareDomain(parsed.hostname)) return 'fengwind-welfare';
     if (isSotaAgentDomain(parsed.hostname)) return 'sota-agent';
     if (parsed.pathname.startsWith('/chat')) return 'deeix-chat';
     const redirect = parsed.searchParams.get('redirect') || '';
@@ -2445,6 +2470,9 @@ async function updateRawSiteType(domain, type, { useApi } = {}) {
     }
     if (type === 'sota-agent' && isSotaAgentDomain(domain)) {
       next.pageUrl = `https://${domain}${SOTA_AGENT_PAGE_PATH}`;
+    }
+    if (type === 'fengwind-welfare' && isFengwindWelfareDomain(domain)) {
+      next.pageUrl = `https://${domain}${FENGWIND_WELFARE_PAGE_PATH}`;
     }
     return next;
   });
@@ -2689,6 +2717,357 @@ async function checkInSotaAgentSite(site, tabSession = null) {
     tabSession,
     flowResult.queryVerified
   );
+}
+
+async function executeFengwindWelfareTabRequest(tabId, method, endpoint) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: requestFengwindWelfareInPage,
+      args: [method, endpoint, FENGWIND_WELFARE_TOKEN_KEY, SITE_FETCH_TIMEOUT_MS]
+    });
+    return results[0]?.result || {
+      error: 'Fengwind 福利站页面请求无响应',
+      httpStatus: 0,
+      data: null
+    };
+  } catch (e) {
+    return {
+      error: e?.message || 'Fengwind 福利站页面请求失败',
+      httpStatus: 0,
+      data: null
+    };
+  }
+}
+
+function logFengwindWelfareRequestState(site, stage, result) {
+  console.log(`${site.siteName} Fengwind 福利站 ${stage}:`, {
+    httpStatus: result?.httpStatus || 0,
+    hasToken: result?.hasToken === true,
+    missingToken: result?.missingToken === true,
+    invalidSite: result?.invalidSite === true,
+    hasError: Boolean(result?.error)
+  });
+}
+
+function buildFengwindWelfareRunResult(execResult, queryVerified = false) {
+  const result = formatResult(execResult);
+  result.queryVerified = queryVerified;
+  return result;
+}
+
+async function probeFengwindWelfareStatus(site, tabId) {
+  const rawResult = await executeFengwindWelfareTabRequest(
+    tabId,
+    'GET',
+    FENGWIND_WELFARE_STATUS_PATH
+  );
+  logFengwindWelfareRequestState(site, 'GET 状态查询', rawResult);
+  return parseFengwindWelfareResponse(rawResult, 'GET');
+}
+
+async function beginFengwindWelfareLogin(tabId) {
+  const beforeTab = await chrome.tabs.get(tabId);
+  const beforeUrl = beforeTab.url || beforeTab.pendingUrl || '';
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: startFengwindWelfareLoginInPage,
+      args: [
+        FENGWIND_WELFARE_LOGIN_PATH,
+        FENGWIND_WELFARE_STATE_KEY,
+        FENGWIND_WELFARE_MAIN_DOMAIN,
+        SITE_FETCH_TIMEOUT_MS
+      ]
+    });
+    const result = results[0]?.result || { success: false, message: '福利站登录跳转未启动' };
+    if (!result.success) return result;
+    await waitForTabUrlChange(tabId, beforeUrl, 5000);
+    return result;
+  } catch (e) {
+    const currentTab = await chrome.tabs.get(tabId).catch(() => null);
+    const currentUrl = currentTab?.url || currentTab?.pendingUrl || '';
+    if (currentUrl && currentUrl !== beforeUrl) {
+      return { success: true, started: true, loginUrl: '' };
+    }
+    return { success: false, message: e?.message || '福利站登录跳转未启动' };
+  }
+}
+
+async function completeFengwindWelfareCallback(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: completeFengwindWelfareCallbackInPage,
+      args: [
+        FENGWIND_WELFARE_EXCHANGE_PATH,
+        FENGWIND_WELFARE_TOKEN_KEY,
+        FENGWIND_WELFARE_STATE_KEY,
+        SITE_FETCH_TIMEOUT_MS
+      ]
+    });
+    return results[0]?.result || { success: false, message: '福利站登录回调无响应' };
+  } catch (e) {
+    return { success: false, message: e?.message || '福利站登录回调处理失败' };
+  }
+}
+
+async function clickFengwindMainLinuxDoLogin(tabId) {
+  const linuxDoCookies = await chrome.cookies.getAll({ domain: 'linux.do' });
+  if (!linuxDoCookies.length) {
+    return { success: false, fatal: true, message: '浏览器尚未登录 linux.do' };
+  }
+
+  const knownTabIds = await getOpenTabIds();
+  const clickResult = await clickSiteLinuxDoLoginButton(tabId, 'Fengwind 主站登录');
+  if (!clickResult?.clicked) {
+    return { success: false, message: '未找到 Fengwind 主站 LinuxDo 登录入口' };
+  }
+
+  let capturedUrl = String(clickResult.popupUrl || clickResult.sameTabUrl || '').trim();
+  if (!capturedUrl) {
+    const newLoginTab = await waitForNewFengwindLoginTab(knownTabIds, 3000);
+    if (newLoginTab?.id) {
+      capturedUrl = String(newLoginTab.url || newLoginTab.pendingUrl || '').trim();
+      await closeTabQuietly(newLoginTab.id);
+    }
+  }
+  if (capturedUrl && !isTrustedFengwindLoginUrl(capturedUrl)) {
+    return { success: false, fatal: true, message: 'Fengwind 登录跳转地址不受信任' };
+  }
+  if (capturedUrl && isTrustedFengwindLoginUrl(capturedUrl)) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    const currentUrl = tab?.url || tab?.pendingUrl || '';
+    if (currentUrl !== capturedUrl) {
+      await chrome.tabs.update(tabId, { url: capturedUrl, active: false });
+    }
+  }
+  return { success: true };
+}
+
+async function waitForNewFengwindLoginTab(knownTabIds, timeout = 5000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeout) {
+    try {
+      const tabs = await chrome.tabs.query({});
+      const tab = tabs.find(candidate => {
+        const url = candidate.url || candidate.pendingUrl || '';
+        return candidate.id &&
+          !knownTabIds.has(candidate.id) &&
+          isTrustedFengwindLoginUrl(url);
+      });
+      if (tab?.id) return tab;
+    } catch (e) {
+      return null;
+    }
+    await sleep(250);
+  }
+  return null;
+}
+
+function isTrustedFengwindLoginUrl(url) {
+  const stage = classifyFengwindWelfareLoginUrl(url);
+  return [
+    'welfare',
+    'welfare-callback',
+    'main',
+    'main-login',
+    'main-sso',
+    'main-oauth-callback',
+    'linuxdo',
+    'linuxdo-login'
+  ].includes(stage);
+}
+
+async function navigateFengwindWelfareHome(site, tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const currentUrl = tab?.url || tab?.pendingUrl || '';
+  if (currentUrl !== site.visitUrl) {
+    await chrome.tabs.update(tabId, { url: site.visitUrl, active: false });
+    await ensureTabPageReady(tabId, site.visitUrl, 20000);
+    await sleep(800);
+  }
+}
+
+async function waitForFengwindWelfareLogin(site, tabId, loginUrl, timeout = 60000) {
+  const startedAt = Date.now();
+  let callbackSeenAt = 0;
+  let callbackAttempted = false;
+  let lastMainLoginAttemptAt = 0;
+  let mainSsoSeenAt = 0;
+  let mainPageSeenAt = 0;
+  let mainCallbackSeenAt = 0;
+  let lastLinuxDoAuthorizeAt = 0;
+  let lastMessage = '';
+
+  while (Date.now() - startedAt < timeout) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    const currentUrl = tab?.url || tab?.pendingUrl || '';
+    if (!currentUrl) {
+      await sleep(500);
+      continue;
+    }
+
+    const stage = classifyFengwindWelfareLoginUrl(currentUrl);
+    if (stage !== 'main-sso') mainSsoSeenAt = 0;
+    if (stage === 'welfare' || stage === 'welfare-callback') {
+      const statusResult = await probeFengwindWelfareStatus(site, tabId);
+      if (statusResult.authenticated) {
+        await navigateFengwindWelfareHome(site, tabId);
+        return { success: true };
+      }
+
+      if (stage === 'welfare-callback') {
+        callbackSeenAt = callbackSeenAt || Date.now();
+        if (!callbackAttempted && Date.now() - callbackSeenAt >= 3500) {
+          callbackAttempted = true;
+          const callbackResult = await completeFengwindWelfareCallback(tabId);
+          lastMessage = callbackResult.message || lastMessage;
+          if (callbackResult.stateMismatch) {
+            return { success: false, message: callbackResult.message };
+          }
+          if (callbackResult.success) {
+            await navigateFengwindWelfareHome(site, tabId);
+          }
+        }
+      } else if (Date.now() - startedAt >= 5000) {
+        lastMessage = statusResult.message || '福利站回跳后仍未建立登录态';
+      }
+    } else if (stage === 'main-sso') {
+      mainSsoSeenAt = mainSsoSeenAt || Date.now();
+      mainPageSeenAt = 0;
+      mainCallbackSeenAt = 0;
+      if (Date.now() - mainSsoSeenAt >= 10000) {
+        lastMessage = 'Fengwind 主站 SSO 跳转超时';
+      }
+    } else if (stage === 'main-login') {
+      mainPageSeenAt = 0;
+      mainCallbackSeenAt = 0;
+      if (Date.now() - lastMainLoginAttemptAt >= 4000) {
+        lastMainLoginAttemptAt = Date.now();
+        const loginResult = await clickFengwindMainLinuxDoLogin(tabId);
+        lastMessage = loginResult.message || lastMessage;
+        if (loginResult.fatal) return loginResult;
+      }
+    } else if (stage === 'linuxdo') {
+      mainPageSeenAt = 0;
+      mainCallbackSeenAt = 0;
+      if (Date.now() - lastLinuxDoAuthorizeAt >= 3000) {
+        lastLinuxDoAuthorizeAt = Date.now();
+        await waitForUsableTabPage(tabId, 15000);
+        await clickLinuxDoAuthorizeButton(tabId);
+      }
+    } else if (stage === 'linuxdo-login') {
+      return { success: false, message: 'linux.do 登录态已失效，请先在浏览器登录后重试' };
+    } else if (stage === 'main-oauth-callback') {
+      mainPageSeenAt = 0;
+      mainCallbackSeenAt = mainCallbackSeenAt || Date.now();
+      if (loginUrl && Date.now() - mainCallbackSeenAt >= 8000) {
+        await chrome.tabs.update(tabId, { url: loginUrl, active: false });
+        await waitForTabComplete(tabId, 20000);
+        mainCallbackSeenAt = 0;
+      }
+    } else if (stage === 'main') {
+      mainCallbackSeenAt = 0;
+      mainPageSeenAt = mainPageSeenAt || Date.now();
+      if (loginUrl && Date.now() - mainPageSeenAt >= 1500) {
+        await chrome.tabs.update(tabId, { url: loginUrl, active: false });
+        await waitForTabComplete(tabId, 20000);
+        mainPageSeenAt = 0;
+      }
+    } else {
+      mainPageSeenAt = 0;
+      mainCallbackSeenAt = 0;
+    }
+
+    await sleep(700);
+  }
+
+  return { success: false, message: lastMessage || 'Fengwind 福利站登录超时' };
+}
+
+async function ensureFengwindWelfareAuthenticated(site, tabId) {
+  await appendCheckInLog(site.siteName, '未登录', '福利站未检测到有效登录态，开始向主站获取登录状态');
+  const startResult = await beginFengwindWelfareLogin(tabId);
+  if (!startResult.success) return startResult;
+
+  const loginResult = await waitForFengwindWelfareLogin(site, tabId, startResult.loginUrl || '');
+  if (loginResult.success) {
+    await appendCheckInLog(site.siteName, '登录成功', '主站 SSO 完成，已返回 Fengwind 福利站');
+  }
+  return loginResult;
+}
+
+async function finishFengwindWelfarePageCheckIn(site, tabId, tabSession) {
+  const fallback = await tryOfficialPageFallback(site, {
+    success: false,
+    message: '已禁用接口调用，使用页面点击签到',
+    httpStatus: 0,
+    skipApiByConfig: true
+  }, tabId, tabSession);
+  const activeTabId = fallback.tabToCleanup || tabId;
+  const verifyResult = await probeFengwindWelfareStatus(site, activeTabId);
+  let execResult = fallback.execResult;
+  if (verifyResult.alreadyCheckedIn && !execResult.success) {
+    execResult = {
+      ...verifyResult,
+      success: true,
+      alreadyCheckedIn: false,
+      message: '签到成功，状态查询已确认'
+    };
+  }
+  await closeTabUnlessInSession(activeTabId, tabSession);
+  return buildFengwindWelfareRunResult(execResult, verifyResult.alreadyCheckedIn === true);
+}
+
+async function checkInFengwindWelfareSite(site, tabSession = null) {
+  if (!isFengwindWelfareDomain(site.cookieDomain)) {
+    return { status: 'failed', message: 'Fengwind 福利站仅支持 api-welfalre.fengwind.com' };
+  }
+
+  const tab = await openSiteSessionTab(tabSession, site.visitUrl, 20000);
+  try {
+    await sleep(800);
+    if (!site.useApi) {
+      let statusResult = await probeFengwindWelfareStatus(site, tab.id);
+      if (statusResult.unauthenticated) {
+        const loginResult = await ensureFengwindWelfareAuthenticated(site, tab.id);
+        if (!loginResult.success) {
+          return { status: 'failed', message: loginResult.message || 'Fengwind 福利站登录失败' };
+        }
+        statusResult = await probeFengwindWelfareStatus(site, tab.id);
+      }
+      if (statusResult.alreadyCheckedIn || statusResult.invalidSite || statusResult.disabled) {
+        return buildFengwindWelfareRunResult(statusResult, statusResult.alreadyCheckedIn === true);
+      }
+      return finishFengwindWelfarePageCheckIn(site, tab.id, tabSession);
+    }
+
+    await appendCheckInLog(site.siteName, '待检查', '使用福利站页面登录态执行专用 API 签到流程');
+    let flowResult = await runFengwindWelfareCheckInFlow(
+      (method, endpoint) => executeFengwindWelfareTabRequest(tab.id, method, endpoint),
+      (stage, result) => logFengwindWelfareRequestState(site, stage, result)
+    );
+    if (flowResult.shouldLogin) {
+      const loginResult = await ensureFengwindWelfareAuthenticated(site, tab.id);
+      if (!loginResult.success) {
+        return { status: 'failed', message: loginResult.message || 'Fengwind 福利站登录失败' };
+      }
+      flowResult = await runFengwindWelfareCheckInFlow(
+        (method, endpoint) => executeFengwindWelfareTabRequest(tab.id, method, endpoint),
+        (stage, result) => logFengwindWelfareRequestState(site, stage, result)
+      );
+    }
+    if (flowResult.shouldLogin) {
+      return { status: 'failed', message: 'Fengwind 福利站登录后仍未获得有效登录态' };
+    }
+    return buildFengwindWelfareRunResult(flowResult.execResult, flowResult.queryVerified);
+  } finally {
+    await closeTabUnlessInSession(tab.id, tabSession);
+  }
 }
 
 async function checkInDeeixChatSite(site, tabSession = null) {

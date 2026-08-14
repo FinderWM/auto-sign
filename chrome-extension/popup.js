@@ -586,7 +586,8 @@ function getSiteTypeLabel(site) {
     'deeix-chat': 'DEEIX',
     'points-checkin': '积分签到',
     localapi: 'LocalAPI',
-    'sota-agent': 'Sota Agent'
+    'sota-agent': 'Sota Agent',
+    'fengwind-welfare': 'Fengwind 福利'
   };
   return labels[site?.type] || '自动';
 }
