@@ -7,6 +7,8 @@ let groupDialogContext = null;
 let groupDialogSaving = false;
 let siteEditDialogContext = null;
 let siteEditDialogSaving = false;
+let groupAutoSignTimes = {};
+let fallbackAutoSignTime = '09:00';
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', () => {
@@ -90,6 +92,10 @@ function setupSiteEditDialogEvents() {
 function loadStatus() {
   chrome.runtime.sendMessage({ action: 'getStatus' }, (response) => {
     if (response) {
+      groupAutoSignTimes = normalizePopupGroupAutoSignTimes(response.groupAutoSignTimes);
+      fallbackAutoSignTime = isValidAutoSignTime(response.autoSignTime)
+        ? response.autoSignTime
+        : '09:00';
       const results = response.checkInResults || {};
       currentRunState = getCheckInRunState({ checkInRunState: response.checkInRunState });
       syncSingleSiteRunState(response);
@@ -100,9 +106,6 @@ function loadStatus() {
     if (response?.lastCheckInTime) {
       document.getElementById('lastCheck').textContent =
         `上次签到: ${formatDateTime(new Date(response.lastCheckInTime))}`;
-    }
-    if (response?.autoSignTime) {
-      setAutoSignTimeDisplay(response.autoSignTime);
     }
   });
 }
@@ -135,6 +138,18 @@ function handleStorageChange(changes, areaName) {
 
   if (changes.userSites) {
     renderSites(undefined, { preserveScroll: true });
+  }
+
+  if (changes.groupAutoSignTimes || changes.autoSignTime) {
+    if (changes.groupAutoSignTimes) {
+      groupAutoSignTimes = normalizePopupGroupAutoSignTimes(changes.groupAutoSignTimes.newValue);
+    }
+    if (changes.autoSignTime) {
+      fallbackAutoSignTime = isValidAutoSignTime(changes.autoSignTime.newValue)
+        ? changes.autoSignTime.newValue
+        : '09:00';
+    }
+    updateAutoSignTimeDisplay();
   }
 
   if (changes.lastCheckInTime?.newValue) {
@@ -262,6 +277,18 @@ let siteSearchQuery = '';
 let draggingDomain = null;
 let tabDropHandled = false;
 
+function normalizeSiteGroupValue(value) {
+  return normalizeSiteGroup(value);
+}
+
+function getActiveGroupValue() {
+  return normalizeSiteGroupValue(activeGroup);
+}
+
+function getActiveGroupSites(sites = []) {
+  return filterSitesByGroup(sites, getActiveGroupValue());
+}
+
 function handleSiteSearchInput(event) {
   siteSearchQuery = event.target.value;
   renderSites(undefined, { preserveScroll: true });
@@ -283,7 +310,6 @@ async function renderSites(results, { preserveScroll = false } = {}) {
 
   const sitesList = document.getElementById('sitesList');
   document.getElementById('totalSites').textContent = sites.length;
-  updateCheckInButtonState(sites);
 
   destroySortables();
 
@@ -490,6 +516,8 @@ async function renderSites(results, { preserveScroll = false } = {}) {
   if (!activeGroup || !groups.some(g => g.name === activeGroup)) {
     activeGroup = groups[0]?.name || null;
   }
+  updateAutoSignTimeDisplay();
+  updateCheckInButtonState(sites);
 
   const fragment = document.createDocumentFragment();
 
@@ -512,6 +540,7 @@ async function renderSites(results, { preserveScroll = false } = {}) {
 
     tab.addEventListener('click', () => {
       activeGroup = groupName;
+      document.getElementById('timeStatus').textContent = '';
       renderSites(undefined, { preserveScroll: true });
     });
 
@@ -592,10 +621,9 @@ function getSiteTypeLabel(site) {
   return labels[site?.type] || '自动';
 }
 
-// 站点分组键（空/缺省归入「未分组」）
+// 站点分组键（空/缺省归入「默认」）
 function getSiteGroup(site) {
-  const g = String(site?.group || '').trim();
-  return g || UNGROUPED_LABEL;
+  return normalizeSiteGroupValue(site?.group) || UNGROUPED_LABEL;
 }
 
 // 按 group 归类，保留各组首次出现顺序；默认组始终排在最前
@@ -849,7 +877,7 @@ async function handlePickGroup(domain) {
   if (!site) return;
 
   const existing = Array.from(new Set(
-    sites.map(s => String(s.group || '').trim()).filter(Boolean)
+    sites.map(s => normalizeSiteGroupValue(s.group)).filter(Boolean)
   ));
   openGroupDialog(site, existing, returnFocus);
 }
@@ -857,10 +885,10 @@ async function handlePickGroup(domain) {
 function openGroupDialog(site, existingGroups, returnFocus) {
   const dialog = document.getElementById('groupDialog');
   const existingSelect = document.getElementById('groupExistingSelect');
-  const current = String(site.group || '').trim();
+  const current = normalizeSiteGroupValue(site.group);
 
   existingSelect.replaceChildren();
-  appendGroupOption(existingSelect, '', '未分组');
+  appendGroupOption(existingSelect, '', UNGROUPED_LABEL);
   existingGroups.forEach(groupName => appendGroupOption(existingSelect, groupName, groupName));
   existingSelect.value = current;
 
@@ -886,9 +914,9 @@ async function handleGroupDialogSubmit(event) {
   if (!groupDialogContext || groupDialogSaving) return;
 
   const context = groupDialogContext;
-  const selectedGroup = document.getElementById('groupExistingSelect').value.trim();
-  const newGroup = document.getElementById('groupNewInput').value.trim();
-  const nextGroup = newGroup || selectedGroup;
+  const selectedGroup = normalizeSiteGroupValue(document.getElementById('groupExistingSelect').value);
+  const newGroupInput = document.getElementById('groupNewInput').value.trim();
+  const nextGroup = newGroupInput ? normalizeSiteGroupValue(newGroupInput) : selectedGroup;
 
   setGroupDialogBusy(true);
   try {
@@ -896,7 +924,7 @@ async function handleGroupDialogSubmit(event) {
     const site = sites.find(item => item.domain === context.domain);
     if (!site) throw new Error('站点不存在');
 
-    const currentGroup = String(site.group || '').trim();
+    const currentGroup = normalizeSiteGroupValue(site.group);
     if (nextGroup !== currentGroup) {
       if (nextGroup) site.group = nextGroup;
       else delete site.group;
@@ -1012,7 +1040,7 @@ async function moveSiteToGroup(domain, groupValue, groupName) {
   const site = sites.find(s => s.domain === domain);
   if (!site) return;
 
-  const current = String(site.group || '').trim();
+  const current = normalizeSiteGroupValue(site.group);
   if (current === groupValue) return; // 同组无需处理
 
   if (groupValue) site.group = groupValue;
@@ -1049,7 +1077,9 @@ async function persistOrderFromDom() {
 
 // 手动签到
 async function handleManualCheckIn() {
-  const sites = await loadRawSites();
+  const allSites = await loadRawSites();
+  const sites = getActiveGroupSites(allSites);
+  const group = getActiveGroupValue();
   if (isCheckInRunningState(currentRunState)) {
     await cancelCurrentCheckIn(sites);
     return;
@@ -1060,13 +1090,16 @@ async function handleManualCheckIn() {
     return;
   }
 
-  currentRunState = buildCheckInRunningState({ total: sites.length, source: 'manual' });
+  currentRunState = {
+    ...buildCheckInRunningState({ total: sites.length, source: 'manual' }),
+    group
+  };
   updateCheckInButtonState(sites);
   showLoading();
 
   try {
     const response = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'manualCheckIn' }, (response) => {
+      chrome.runtime.sendMessage({ action: 'manualCheckIn', group }, (response) => {
         if (response?.success) resolve(response);
         else reject(new Error(response?.error || '签到失败'));
       });
@@ -1087,7 +1120,9 @@ async function handleManualCheckIn() {
 }
 
 async function handleManualCheckInFromSite(siteId) {
-  const sites = await loadRawSites();
+  const allSites = await loadRawSites();
+  const sites = getActiveGroupSites(allSites);
+  const group = getActiveGroupValue();
   if (!siteId || isCheckInRunningState(currentRunState)) return;
 
   if (!canStartCheckIn(sites, currentRunState)) {
@@ -1101,13 +1136,16 @@ async function handleManualCheckInFromSite(siteId) {
     return;
   }
 
-  currentRunState = buildCheckInRunningState({ total, source: 'manual' });
+  currentRunState = {
+    ...buildCheckInRunningState({ total, source: 'manual' }),
+    group
+  };
   await updateCheckInButtonState(sites);
   await renderSites(undefined, { preserveScroll: true });
 
   try {
     const response = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'manualCheckInFromSite', siteId }, (response) => {
+      chrome.runtime.sendMessage({ action: 'manualCheckInFromSite', siteId, group }, (response) => {
         if (response?.success) resolve(response);
         else reject(new Error(response?.error || '从指定站点继续签到失败'));
       });
@@ -1120,40 +1158,6 @@ async function handleManualCheckInFromSite(siteId) {
     }
   } catch (error) {
     alert('从指定站点继续签到失败: ' + error.message);
-  } finally {
-    const data = await chrome.storage.local.get('checkInRunState');
-    currentRunState = getCheckInRunState(data);
-    await updateCheckInButtonState();
-  }
-}
-
-// 继续签到：仅重签上轮失败/未完成的站点（已成功/已签的跳过）。
-async function handleResumeCheckIn() {
-  const sites = await loadRawSites();
-  if (isCheckInRunningState(currentRunState)) return;
-  if (!canStartCheckIn(sites, currentRunState)) {
-    updateCheckInButtonState(sites);
-    return;
-  }
-
-  currentRunState = buildCheckInRunningState({ total: sites.length, source: 'manual' });
-  updateCheckInButtonState(sites);
-
-  try {
-    const response = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'resumeCheckIn' }, (response) => {
-        if (response?.success) resolve(response);
-        else reject(new Error(response?.error || '继续签到失败'));
-      });
-    });
-
-    updateStats(response.results || {});
-    renderSites(response.results || {});
-    if (!response.running) {
-      document.getElementById('lastCheck').textContent = `上次签到: ${formatDateTime(new Date())}`;
-    }
-  } catch (error) {
-    alert('继续签到失败: ' + error.message);
   } finally {
     const data = await chrome.storage.local.get('checkInRunState');
     currentRunState = getCheckInRunState(data);
@@ -1264,7 +1268,8 @@ async function handleStopSingleSite(siteId) {
 }
 
 async function updateCheckInButtonState(sites) {
-  const currentSites = sites || await loadRawSites();
+  const allSites = sites || await loadRawSites();
+  const currentSites = getActiveGroupSites(allSites);
   const running = isCheckInRunningState(currentRunState);
   const cancelling = running && currentRunState?.cancelling === true;
   const enabledCount = countEnabledSites(currentSites);
@@ -1280,11 +1285,11 @@ async function updateCheckInButtonState(sites) {
     ? '点击终止当前签到任务'
     : (enabledCount > 0 ? '' : '请先添加并启用至少一个站点');
 
-  await updateResumeButtonState(running);
+  await updateResumeButtonState(running, currentSites);
 }
 
 // 「继续签到」按钮：仅在「非运行中」且「存在失败/失效站点」时显示。
-async function updateResumeButtonState(running) {
+async function updateResumeButtonState(running, currentSites = []) {
   const resumeBtn = document.getElementById('resumeBtn');
   if (!resumeBtn) return;
   if (running) {
@@ -1292,24 +1297,31 @@ async function updateResumeButtonState(running) {
     return;
   }
   const { checkInResults = {} } = await chrome.storage.local.get('checkInResults');
-  const hasFailed = Object.values(checkInResults).some(
-    r => r?.status === 'failed' || r?.status === 'invalid'
+  const currentSiteIds = new Set(currentSites.map(getRawSiteId));
+  const hasFailed = Object.entries(checkInResults).some(
+    ([siteId, result]) => currentSiteIds.has(siteId)
+      && (result?.status === 'failed' || result?.status === 'invalid')
   );
   resumeBtn.style.display = hasFailed ? '' : 'none';
 }
 
 // 继续签到：复用批量通道，后台仅重跑未完成（失败/失效/未跑）站点。
 async function handleResumeCheckIn() {
-  const sites = await loadRawSites();
+  const allSites = await loadRawSites();
+  const sites = getActiveGroupSites(allSites);
+  const group = getActiveGroupValue();
   if (isCheckInRunningState(currentRunState)) return;
   if (!canStartCheckIn(sites, currentRunState)) return;
 
-  currentRunState = buildCheckInRunningState({ total: countEnabledSites(sites), source: 'manual' });
+  currentRunState = {
+    ...buildCheckInRunningState({ total: sites.length, source: 'manual' }),
+    group
+  };
   await updateCheckInButtonState(sites);
 
   try {
     const response = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'resumeCheckIn' }, (response) => {
+      chrome.runtime.sendMessage({ action: 'resumeCheckIn', group }, (response) => {
         if (response?.success) resolve(response);
         else reject(new Error(response?.error || '继续签到失败'));
       });
@@ -1362,16 +1374,22 @@ async function handleSaveAutoSignTime() {
   }
 
   btn.disabled = true;
+  const group = getActiveGroupValue();
+  const groupName = activeGroup || UNGROUPED_LABEL;
   try {
     const response = await new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'updateAutoSignTime', time }, (response) => {
+      chrome.runtime.sendMessage({ action: 'updateAutoSignTime', group, time }, (response) => {
         if (response?.success) resolve(response);
         else reject(new Error(response?.error || '保存失败'));
       });
     });
 
-    setAutoSignTimeDisplay(response.autoSignTime);
-    status.textContent = `已保存为 ${response.autoSignTime}`;
+    groupAutoSignTimes = normalizePopupGroupAutoSignTimes(response.groupAutoSignTimes);
+    fallbackAutoSignTime = isValidAutoSignTime(response.fallbackAutoSignTime)
+      ? response.fallbackAutoSignTime
+      : fallbackAutoSignTime;
+    updateAutoSignTimeDisplay();
+    status.textContent = `已保存 ${groupName}分组为 ${time}`;
   } catch (error) {
     status.classList.add('error');
     status.textContent = error.message;
@@ -1380,9 +1398,24 @@ async function handleSaveAutoSignTime() {
   }
 }
 
-function setAutoSignTimeDisplay(time) {
+function normalizePopupGroupAutoSignTimes(value) {
+  return Object.fromEntries(
+    Object.entries(normalizeGroupAutoSignTimes(value))
+      .filter(([, time]) => isValidAutoSignTime(time))
+  );
+}
+
+function getPopupAutoSignTime() {
+  const time = getGroupAutoSignTime(groupAutoSignTimes, getActiveGroupValue(), fallbackAutoSignTime);
+  return isValidAutoSignTime(time) ? time : fallbackAutoSignTime;
+}
+
+function updateAutoSignTimeDisplay() {
+  const time = getPopupAutoSignTime();
   document.getElementById('autoSignTime').value = time;
   document.getElementById('autoSignTimeLabel').textContent = time;
+  const groupLabel = document.getElementById('autoSignGroupLabel');
+  if (groupLabel) groupLabel.textContent = activeGroup || UNGROUPED_LABEL;
 }
 
 // 导出配置
@@ -1390,15 +1423,19 @@ async function handleExport() {
   const sites = await loadRawSites();
   const exportOrder = getCurrentSiteListOrder();
   const displayNamesByDomain = getCurrentSiteDisplayNamesByDomain();
-  const { autoSignTime } = await chrome.storage.local.get('autoSignTime');
+  const { autoSignTime, groupAutoSignTimes: storedGroupAutoSignTimes } = await chrome.storage.local.get([
+    'autoSignTime',
+    'groupAutoSignTimes'
+  ]);
   const currentAutoSignTime = isValidAutoSignTime(autoSignTime)
     ? autoSignTime
-    : document.getElementById('autoSignTime').value;
+    : fallbackAutoSignTime;
 
   const config = buildExportConfig(sites, currentAutoSignTime, {
     orderedDomains: exportOrder,
     displayNamesByDomain
   });
+  config.groupAutoSignTimes = normalizePopupGroupAutoSignTimes(storedGroupAutoSignTimes);
 
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -1479,9 +1516,32 @@ async function handleImport(event) {
     await saveSitesConfig(finalSites);
 
     const importedAutoSignTime = getImportAutoSignTime(config);
-    if (importedAutoSignTime) {
-      await chrome.runtime.sendMessage({ action: 'updateAutoSignTime', time: importedAutoSignTime });
-      setAutoSignTimeDisplay(importedAutoSignTime);
+    const hasImportedGroupTimes = config.groupAutoSignTimes
+      && typeof config.groupAutoSignTimes === 'object'
+      && !Array.isArray(config.groupAutoSignTimes);
+    if (importedAutoSignTime || hasImportedGroupTimes) {
+      const currentSchedule = await chrome.storage.local.get([
+        'autoSignTime',
+        'groupAutoSignTimes'
+      ]);
+      const importedTimes = normalizePopupGroupAutoSignTimes(config.groupAutoSignTimes);
+      const mergedTimes = importMode === 'merge'
+        ? {
+          ...normalizePopupGroupAutoSignTimes(currentSchedule.groupAutoSignTimes),
+          ...importedTimes
+        }
+        : importedTimes;
+      const response = await chrome.runtime.sendMessage({
+        action: 'updateGroupAutoSignTimes',
+        groupAutoSignTimes: mergedTimes,
+        autoSignTime: importedAutoSignTime || currentSchedule.autoSignTime
+      });
+      if (!response?.success) throw new Error(response?.error || '导入分组签到时间失败');
+      groupAutoSignTimes = normalizePopupGroupAutoSignTimes(response.groupAutoSignTimes);
+      fallbackAutoSignTime = isValidAutoSignTime(response.fallbackAutoSignTime)
+        ? response.fallbackAutoSignTime
+        : fallbackAutoSignTime;
+      updateAutoSignTimeDisplay();
     }
 
     renderSites();

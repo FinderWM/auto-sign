@@ -4,6 +4,7 @@ importScripts('schedule.js', 'config.js', 'site-url.js', 'auth-headers.js', 'aut
   'page-status.js', 'checkin-run-state.js', 'balance.js');
 
 const DAILY_CHECK_IN_ALARM = 'dailyCheckIn';
+const GROUP_AUTO_SIGN_TIMES_STORAGE_KEY = 'groupAutoSignTimes';
 const PAGE_USABLE_TIMEOUT_MS = 20000;
 // 单站签到的重试与超时策略：批量与单站重试共用，确保任何一步挂起都不会卡死整体流程。
 const SITE_CHECKIN_TIMEOUT_MS = 90000;       // 单次签到尝试的硬超时（覆盖 OAuth 登录等慢流程）
@@ -39,6 +40,9 @@ let batchCheckIn = null; // { promise, cancelToken, runContext }
 // 单站重试按 siteId 独立跟踪，互不阻塞、也不阻塞批量。
 const singleSiteCheckIns = new Map(); // siteId -> { promise, cancelToken, runContext }
 let checkInLogWriteQueue = Promise.resolve();
+let scheduledCheckInQueue = Promise.resolve();
+let groupScheduleRefreshPromise = null;
+let groupScheduleRefreshRequested = false;
 
 function formatCheckInLogTime(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -234,26 +238,41 @@ recoverStaleCheckInState();
 chrome.runtime.onInstalled.addListener(() => {
   console.log('公益站自动签到助手已安装');
 
-  scheduleDailyCheckIn();
-
   chrome.storage.local.set({
     lastCheckInTime: null,
     checkInResults: {},
     checkInResultsDay: getLocalDayKey(),
     checkInLogs: []
+  }).then(() => refreshGroupCheckInSchedules()).catch(error => {
+    console.warn('初始化分组签到时间失败:', error);
   });
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  scheduleDailyCheckIn();
+  refreshGroupCheckInSchedules().catch(error => {
+    console.warn('启动时恢复分组签到时间失败:', error);
+  });
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  if (changes.userSites || changes[GROUP_AUTO_SIGN_TIMES_STORAGE_KEY] || changes.autoSignTime) {
+    refreshGroupCheckInSchedules().catch(error => {
+      console.warn('分组签到时间更新失败:', error);
+    });
+  }
 });
 
 // 监听定时器
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === DAILY_CHECK_IN_ALARM) {
-    console.log('开始执行定时签到');
-    startCheckInRun('schedule');
+    refreshGroupCheckInSchedules().catch(error => {
+      console.warn('清理旧签到闹钟失败:', error);
+    });
+    return;
   }
+  const groupAlarm = parseGroupCheckInAlarmName(alarm.name);
+  if (groupAlarm) enqueueScheduledGroupCheckIn(groupAlarm.group);
 });
 
 // 监听来自 popup 的消息
@@ -269,7 +288,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
     } else {
-      startCheckInRun('manual').then(results => {
+      startCheckInRun('manual', { group: normalizeSiteGroup(request.group) }).then(results => {
         sendResponse({ success: true, running: false, results });
       }).catch(error => {
         sendResponse({ success: false, error: error.message });
@@ -289,7 +308,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
     } else {
-      startCheckInRun('manual', { resume: true }).then(results => {
+      startCheckInRun('manual', {
+        resume: true,
+        group: normalizeSiteGroup(request.group)
+      }).then(results => {
         sendResponse({ success: true, running: false, results });
       }).catch(error => {
         sendResponse({ success: false, error: error.message });
@@ -309,7 +331,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
     } else {
-      startCheckInRun('manual', { startSiteId: request.siteId }).then(results => {
+      startCheckInRun('manual', {
+        startSiteId: request.siteId,
+        group: normalizeSiteGroup(request.group)
+      }).then(results => {
         sendResponse({ success: true, running: false, results });
       }).catch(error => {
         sendResponse({ success: false, error: error.message });
@@ -367,7 +392,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === 'getStatus') {
     chrome.storage.local.get(
-      ['lastCheckInTime', 'checkInResults', 'checkInResultsDay', 'checkInRunState', 'autoSignTime', 'checkInLogs'],
+      [
+        'lastCheckInTime',
+        'checkInResults',
+        'checkInResultsDay',
+        'checkInRunState',
+        'autoSignTime',
+        GROUP_AUTO_SIGN_TIMES_STORAGE_KEY,
+        'checkInLogs'
+      ],
       async (data) => {
       let runState = getCheckInRunState(data);
       let results = data.checkInResults || {};
@@ -402,7 +435,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         checkInResults: results,
         checkInRunState: runState,
         checkInLogs: Array.isArray(data.checkInLogs) ? data.checkInLogs : [],
-        autoSignTime: isValidAutoSignTime(data.autoSignTime) ? data.autoSignTime : GLOBAL_CONFIG.autoSignTime,
+        autoSignTime: getFallbackAutoSignTime(data),
+        groupAutoSignTimes: sanitizeGroupAutoSignTimes(data[GROUP_AUTO_SIGN_TIMES_STORAGE_KEY]),
         ...singleSiteSnapshot
       });
     });
@@ -416,10 +450,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return false;
     }
 
-    chrome.storage.local.set({ autoSignTime: time }).then(() => {
-      return scheduleDailyCheckIn(time);
-    }).then((autoSignTime) => {
-      sendResponse({ success: true, autoSignTime });
+    updateGroupAutoSignTime(request.group, time).then(result => {
+      sendResponse({ success: true, ...result });
+    }).catch(error => {
+      sendResponse({ success: false, error: error.message });
+    });
+    return true;
+  }
+
+  if (request.action === 'updateGroupAutoSignTimes') {
+    updateAllGroupAutoSignTimes(request.groupAutoSignTimes, request.autoSignTime).then(result => {
+      sendResponse({ success: true, ...result });
     }).catch((error) => {
       sendResponse({ success: false, error: error.message });
     });
@@ -482,7 +523,10 @@ async function removeCurrentSite(rawSite) {
   return { success: true, notFound: false, domain: parsed.domain };
 }
 
-function startCheckInRun(source = 'manual', { resume = false, startSiteId = null } = {}) {
+function startCheckInRun(
+  source = 'manual',
+  { resume = false, startSiteId = null, group = '' } = {}
+) {
   if (batchCheckIn) {
     console.log('已有批量签到任务正在执行，跳过重复触发');
     return batchCheckIn.promise;
@@ -490,7 +534,14 @@ function startCheckInRun(source = 'manual', { resume = false, startSiteId = null
 
   const cancelToken = createCheckInCancelToken();
   const runContext = { cancelToken, tabSession: null, currentSiteId: null };
-  const promise = executeAllCheckIns({ source, cancelToken, runContext, resume, startSiteId }).finally(() => {
+  const promise = executeAllCheckIns({
+    source,
+    cancelToken,
+    runContext,
+    resume,
+    startSiteId,
+    group
+  }).finally(() => {
     if (batchCheckIn?.cancelToken === cancelToken) batchCheckIn = null;
   });
   batchCheckIn = { promise, cancelToken, runContext };
@@ -838,19 +889,24 @@ function isResumeDoneResult(result) {
   return result?.status === 'success' || result?.status === 'already';
 }
 
-function getBatchTaskSites(sites = [], startSiteId = null) {
+function getBatchTaskSites(sites = [], { startSiteId = null, group = '' } = {}) {
+  const scopedSites = filterSitesByGroup(sites, group);
   const startIndex = startSiteId
-    ? sites.findIndex(site => site.siteId === startSiteId)
+    ? scopedSites.findIndex(site => site.siteId === startSiteId)
     : 0;
 
   if (startSiteId && startIndex === -1) {
-    throw new Error('未找到起始站点');
+    throw new Error('未在当前分组找到起始站点');
   }
 
   return {
-    startSite: startIndex >= 0 ? sites[startIndex] : null,
-    taskSites: sites.slice(Math.max(startIndex, 0))
+    startSite: startIndex >= 0 ? scopedSites[startIndex] : null,
+    taskSites: scopedSites.slice(Math.max(startIndex, 0))
   };
+}
+
+function getCheckInGroupLabel(group) {
+  return normalizeSiteGroup(group) || '默认';
 }
 
 // 全量/从某站重启：删掉目标站点结果，面板立刻回到「待签」。
@@ -863,17 +919,30 @@ function clearSelectedResults(results = {}, siteIds = new Set()) {
 }
 
 // 执行所有站点签到
-async function executeAllCheckIns({ source = 'manual', cancelToken = null, runContext = null, resume = false, startSiteId = null } = {}) {
+async function executeAllCheckIns({
+  source = 'manual',
+  cancelToken = null,
+  runContext = null,
+  resume = false,
+  startSiteId = null,
+  group = ''
+} = {}) {
+  const groupLabel = `${getCheckInGroupLabel(group)}分组`;
   console.log(startSiteId
-    ? `开始从指定站点继续签到: ${startSiteId}`
+    ? `开始在 ${groupLabel} 从指定站点继续签到: ${startSiteId}`
     : resume
-    ? '开始继续签到（仅未完成站点）'
-    : '开始批量签到');
+    ? `开始继续签到（${groupLabel}，仅未完成站点）`
+    : `开始批量签到（${groupLabel}）`);
   const sites = await loadSitesConfig();
-  const { startSite, taskSites } = getBatchTaskSites(sites, startSiteId);
+  const { startSite, taskSites } = getBatchTaskSites(sites, {
+    startSiteId,
+    group
+  });
   const total = taskSites.length;
   if (total <= 0) {
-    throw new Error(startSiteId ? '起始站点之后没有可签到的站点配置' : '没有可签到的站点配置');
+    throw new Error(startSiteId
+      ? '起始站点之后没有可签到的站点配置'
+      : '当前分组没有可签到的站点配置');
   }
 
   const targetSiteIds = new Set(taskSites.map(site => site.siteId));
@@ -889,10 +958,10 @@ async function executeAllCheckIns({ source = 'manual', cancelToken = null, runCo
   const normalizedPreviousResults = normalizeCheckInResultsForRun(previousResults);
   await resetCheckInLogs();
   await appendCheckInLog('系统', '未知', startSite
-    ? `从 ${startSite.siteName} 开始继续签到，共 ${total} 个任务站点`
+    ? `在 ${groupLabel} 从 ${startSite.siteName} 开始继续签到，共 ${total} 个任务站点`
     : resume
-    ? `开始继续签到，共 ${total} 个任务站点`
-    : `开始批量签到，共 ${total} 个任务站点`);
+    ? `开始继续签到 ${groupLabel}，共 ${total} 个任务站点`
+    : `开始批量签到 ${groupLabel}，共 ${total} 个任务站点`);
 
   // 续签：保留上轮已完成站点的结果（含余额）作为种子；
   // 立即签到 / 定时签到：删掉目标站点结果，UI 立即显示「待签」。
@@ -905,7 +974,10 @@ async function executeAllCheckIns({ source = 'manual', cancelToken = null, runCo
     : clearSelectedResults(normalizedPreviousResults, targetSiteIds);
 
   let current = 0;
-  const startedRunState = buildCheckInRunningState({ total, source });
+  const startedRunState = {
+    ...buildCheckInRunningState({ total, source }),
+    group: normalizeSiteGroup(group)
+  };
   await chrome.storage.local.set({
     checkInRunState: startedRunState,
     checkInResults: resume
@@ -924,6 +996,8 @@ async function executeAllCheckIns({ source = 'manual', cancelToken = null, runCo
       break;
     }
 
+    const siteGroup = normalizeSiteGroup(site.group);
+
     // 续签：上轮已完成（成功/已签）的站点直接计入进度并跳过，结果已在种子里。
     if (resume && isResumeDoneResult(results[site.siteId])) {
       current++;
@@ -937,7 +1011,8 @@ async function executeAllCheckIns({ source = 'manual', cancelToken = null, runCo
     const progressRunState = {
       ...startedRunState,
       current,
-      currentSiteId: site.siteId
+      currentSiteId: site.siteId,
+      currentGroup: siteGroup
     };
     // 更新badge进度
     chrome.action.setBadgeText({ text: `${current}/${total}` });
@@ -1044,8 +1119,8 @@ async function executeAllCheckIns({ source = 'manual', cancelToken = null, runCo
   }, 5000);
 
   await appendCheckInLog('系统', '未知', startSite
-    ? `从 ${startSite.siteName} 开始的签到结束：成功 ${successCount}，已签 ${alreadyCount}，失败 ${failedCount}，跳过 ${skippedCount}`
-    : `批量签到结束：成功 ${successCount}，已签 ${alreadyCount}，失败 ${failedCount}，跳过 ${skippedCount}`);
+    ? `${groupLabel} 从 ${startSite.siteName} 开始的签到结束：成功 ${successCount}，已签 ${alreadyCount}，失败 ${failedCount}，跳过 ${skippedCount}`
+    : `${groupLabel} 签到结束：成功 ${successCount}，已签 ${alreadyCount}，失败 ${failedCount}，跳过 ${skippedCount}`);
 
   return results;
 }
@@ -7857,21 +7932,151 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function getAutoSignTime() {
-  const data = await chrome.storage.local.get('autoSignTime');
-  return isValidAutoSignTime(data.autoSignTime) ? data.autoSignTime : GLOBAL_CONFIG.autoSignTime;
+function getFallbackAutoSignTime(data = {}) {
+  return isValidAutoSignTime(data.autoSignTime)
+    ? data.autoSignTime
+    : GLOBAL_CONFIG.autoSignTime;
 }
 
-async function scheduleDailyCheckIn(time) {
-  const autoSignTime = isValidAutoSignTime(time) ? time : await getAutoSignTime();
-  const nextRun = getNextCheckInTimeFor(autoSignTime);
+function sanitizeGroupAutoSignTimes(value) {
+  return Object.fromEntries(
+    Object.entries(normalizeGroupAutoSignTimes(value))
+      .filter(([, time]) => isValidAutoSignTime(time))
+  );
+}
 
-  await chrome.alarms.clear(DAILY_CHECK_IN_ALARM);
-  await chrome.alarms.create(DAILY_CHECK_IN_ALARM, {
-    when: nextRun,
-    periodInMinutes: 24 * 60
+function resolveGroupAutoSignTime(groupAutoSignTimes, group, fallbackAutoSignTime) {
+  const time = getGroupAutoSignTime(groupAutoSignTimes, group, fallbackAutoSignTime);
+  return isValidAutoSignTime(time) ? time : fallbackAutoSignTime;
+}
+
+async function updateGroupAutoSignTime(group, time) {
+  const normalizedGroup = normalizeSiteGroup(group);
+  const [sites, data] = await Promise.all([
+    loadRawSites(),
+    chrome.storage.local.get([GROUP_AUTO_SIGN_TIMES_STORAGE_KEY, 'autoSignTime'])
+  ]);
+  const previousFallback = getFallbackAutoSignTime(data);
+  const currentTimes = fillMissingGroupAutoSignTimes(
+    sites,
+    sanitizeGroupAutoSignTimes(data[GROUP_AUTO_SIGN_TIMES_STORAGE_KEY]),
+    previousFallback
+  );
+  const entries = new Map(Object.entries(currentTimes));
+  entries.set(normalizedGroup, time);
+  const groupAutoSignTimes = Object.fromEntries(entries);
+  const fallbackAutoSignTime = normalizedGroup === '' ? time : previousFallback;
+  const updates = { [GROUP_AUTO_SIGN_TIMES_STORAGE_KEY]: groupAutoSignTimes };
+  if (normalizedGroup === '') updates.autoSignTime = time;
+
+  await chrome.storage.local.set(updates);
+  const schedule = await refreshGroupCheckInSchedules();
+  return {
+    group: normalizedGroup,
+    autoSignTime: time,
+    fallbackAutoSignTime,
+    groupAutoSignTimes: schedule?.groupAutoSignTimes || groupAutoSignTimes
+  };
+}
+
+async function updateAllGroupAutoSignTimes(groupAutoSignTimes, autoSignTime) {
+  const current = await chrome.storage.local.get('autoSignTime');
+  const fallbackAutoSignTime = isValidAutoSignTime(autoSignTime)
+    ? autoSignTime
+    : getFallbackAutoSignTime(current);
+  const normalizedTimes = sanitizeGroupAutoSignTimes(groupAutoSignTimes);
+
+  await chrome.storage.local.set({
+    autoSignTime: fallbackAutoSignTime,
+    [GROUP_AUTO_SIGN_TIMES_STORAGE_KEY]: normalizedTimes
   });
+  const schedule = await refreshGroupCheckInSchedules();
+  return {
+    autoSignTime: fallbackAutoSignTime,
+    fallbackAutoSignTime,
+    groupAutoSignTimes: schedule?.groupAutoSignTimes || normalizedTimes
+  };
+}
 
-  console.log(`每日签到时间已设置为 ${autoSignTime}`);
-  return autoSignTime;
+async function clearGroupCheckInAlarms() {
+  const alarms = await chrome.alarms.getAll();
+  const names = alarms
+    .map(alarm => alarm.name)
+    .filter(name => name === DAILY_CHECK_IN_ALARM || String(name).startsWith(GROUP_CHECK_IN_ALARM_PREFIX));
+  await Promise.all(names.map(name => chrome.alarms.clear(name)));
+}
+
+async function scheduleAllGroupCheckIns() {
+  const [sites, data] = await Promise.all([
+    loadRawSites(),
+    chrome.storage.local.get([GROUP_AUTO_SIGN_TIMES_STORAGE_KEY, 'autoSignTime'])
+  ]);
+  const fallbackAutoSignTime = getFallbackAutoSignTime(data);
+  const storedGroupAutoSignTimes = sanitizeGroupAutoSignTimes(data[GROUP_AUTO_SIGN_TIMES_STORAGE_KEY]);
+  const groupAutoSignTimes = fillMissingGroupAutoSignTimes(
+    sites,
+    storedGroupAutoSignTimes,
+    fallbackAutoSignTime
+  );
+  const groups = groupSitesByGroup(sites).filter(item => (
+    item.sites.some(site => site?.enabled !== false)
+  ));
+  if (JSON.stringify(groupAutoSignTimes) !== JSON.stringify(storedGroupAutoSignTimes)) {
+    await chrome.storage.local.set({ [GROUP_AUTO_SIGN_TIMES_STORAGE_KEY]: groupAutoSignTimes });
+  }
+
+  await clearGroupCheckInAlarms();
+  for (const item of groups) {
+    const time = resolveGroupAutoSignTime(groupAutoSignTimes, item.group, fallbackAutoSignTime);
+    await chrome.alarms.create(getGroupCheckInAlarmName(item.group), {
+      when: getNextCheckInTimeFor(time),
+      periodInMinutes: 24 * 60
+    });
+    console.log(`${getCheckInGroupLabel(item.group)}分组每日签到时间已设置为 ${time}`);
+  }
+
+  return { fallbackAutoSignTime, groupAutoSignTimes };
+}
+
+function refreshGroupCheckInSchedules() {
+  groupScheduleRefreshRequested = true;
+  if (groupScheduleRefreshPromise) return groupScheduleRefreshPromise;
+
+  groupScheduleRefreshPromise = (async () => {
+    let schedule;
+    do {
+      groupScheduleRefreshRequested = false;
+      schedule = await scheduleAllGroupCheckIns();
+    } while (groupScheduleRefreshRequested);
+    return schedule;
+  })().finally(() => {
+    groupScheduleRefreshPromise = null;
+  });
+  return groupScheduleRefreshPromise;
+}
+
+function enqueueScheduledGroupCheckIn(group) {
+  const normalizedGroup = normalizeSiteGroup(group);
+  scheduledCheckInQueue = scheduledCheckInQueue
+    .catch(() => {})
+    .then(async () => {
+      if (batchCheckIn) {
+        try {
+          await batchCheckIn.promise;
+        } catch (error) {}
+      }
+      console.log(`开始执行 ${getCheckInGroupLabel(normalizedGroup)}分组定时签到`);
+      return startCheckInRun('schedule', { group: normalizedGroup });
+    })
+    .catch(async error => {
+      console.warn(`${getCheckInGroupLabel(normalizedGroup)}分组定时签到失败:`, error);
+      try {
+        await appendCheckInLog(
+          '系统',
+          '未知',
+          `${getCheckInGroupLabel(normalizedGroup)}分组定时签到失败：${error.message}`
+        );
+      } catch (logError) {}
+    });
+  return scheduledCheckInQueue;
 }

@@ -16,6 +16,70 @@ const FENGWIND_WELFARE_DOMAIN = 'api-welfalre.fengwind.com';
 const FENGWIND_WELFARE_PAGE_PATH = '/';
 const FENGWIND_WELFARE_CHECK_IN_PATH = '/api/checkin';
 const FENGWIND_WELFARE_STATUS_PATH = '/api/checkin/status';
+const DEFAULT_SITE_GROUP_LABEL = '默认';
+const GROUP_CHECK_IN_ALARM_PREFIX = 'dailyCheckIn:';
+
+function normalizeSiteGroup(value) {
+  const group = String(value || '').trim();
+  return group === DEFAULT_SITE_GROUP_LABEL ? '' : group;
+}
+
+function filterSitesByGroup(sites = [], group = '') {
+  if (!Array.isArray(sites)) return [];
+  const normalizedGroup = normalizeSiteGroup(group);
+  return sites.filter(site => normalizeSiteGroup(site?.group) === normalizedGroup);
+}
+
+function groupSitesByGroup(sites = []) {
+  const groups = new Map([['', []]]);
+  for (const site of Array.isArray(sites) ? sites : []) {
+    const group = normalizeSiteGroup(site?.group);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(site);
+  }
+  return Array.from(groups, ([group, groupSites]) => ({ group, sites: groupSites }));
+}
+
+function normalizeGroupAutoSignTimes(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const entries = new Map();
+  for (const [group, rawTime] of Object.entries(value)) {
+    const time = typeof rawTime === 'string' ? rawTime.trim() : '';
+    if (!time) continue;
+    entries.set(normalizeSiteGroup(group), time);
+  }
+  return Object.fromEntries(entries);
+}
+
+function getGroupAutoSignTime(groupAutoSignTimes, group, fallback = '') {
+  const normalizedTimes = normalizeGroupAutoSignTimes(groupAutoSignTimes);
+  const normalizedGroup = normalizeSiteGroup(group);
+  return Object.prototype.hasOwnProperty.call(normalizedTimes, normalizedGroup)
+    ? normalizedTimes[normalizedGroup]
+    : fallback;
+}
+
+function fillMissingGroupAutoSignTimes(sites, groupAutoSignTimes, fallback) {
+  const entries = new Map(Object.entries(normalizeGroupAutoSignTimes(groupAutoSignTimes)));
+  for (const item of groupSitesByGroup(sites)) {
+    if (!entries.has(item.group)) entries.set(item.group, fallback);
+  }
+  return Object.fromEntries(entries);
+}
+
+function getGroupCheckInAlarmName(group) {
+  return `${GROUP_CHECK_IN_ALARM_PREFIX}${encodeURIComponent(normalizeSiteGroup(group))}`;
+}
+
+function parseGroupCheckInAlarmName(alarmName) {
+  const name = String(alarmName || '');
+  if (!name.startsWith(GROUP_CHECK_IN_ALARM_PREFIX)) return null;
+  try {
+    return { group: normalizeSiteGroup(decodeURIComponent(name.slice(GROUP_CHECK_IN_ALARM_PREFIX.length))) };
+  } catch (error) {
+    return null;
+  }
+}
 
 function normalizeSiteType(type) {
   return [
@@ -173,6 +237,7 @@ function buildSiteConfig(site) {
   return {
     siteId: d.replace(/\./g, '_'),
     siteName: site.name || d,
+    group: normalizeSiteGroup(site.group),
     enabled: site.enabled !== false,
     useApi: defaultUseApi || site.useApi === true,  // 默认 false：仅页面点击，避免封号风险
     mode,
@@ -215,7 +280,15 @@ if (typeof module !== 'undefined' && module.exports) {
     SOTA_AGENT_SITE_TYPE,
     buildSiteConfig,
     dedupeSitesByDomain,
+    fillMissingGroupAutoSignTimes,
+    filterSitesByGroup,
+    getGroupAutoSignTime,
+    getGroupCheckInAlarmName,
+    groupSitesByGroup,
+    normalizeGroupAutoSignTimes,
+    normalizeSiteGroup,
     normalizeSiteMode,
-    normalizeSiteType
+    normalizeSiteType,
+    parseGroupCheckInAlarmName
   };
 }

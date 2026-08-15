@@ -950,7 +950,10 @@
   <div class="container">
     <div class="header">
       <h1>公益站自动签到</h1>
-      <p>支持NewAPI、Sub2API等多类型站点 | 每天 <span id="autoSignTimeLabel">09:00</span></p>
+      <p>
+        支持NewAPI、Sub2API等多类型站点 |
+        <span id="autoSignGroupLabel">默认</span>分组每天 <span id="autoSignTimeLabel">09:00</span>
+      </p>
     </div>
 
     <div class="card">
@@ -1030,7 +1033,7 @@
           <button class="btn btn-sm btn-import" id="importBtn">导入配置</button>
         </div>
         <div class="settings-row">
-          <label for="autoSignTime">每日签到</label>
+          <label for="autoSignTime">分组签到</label>
           <input type="time" id="autoSignTime" value="09:00">
           <button class="btn btn-sm" id="saveTimeBtn">保存</button>
         </div>
@@ -1041,7 +1044,7 @@
       <div class="last-check" id="lastCheck">暂无签到记录</div>
     </div>
 
-    <div class="footer" id="versionFooter">v1.11</div>
+    <div class="footer" id="versionFooter">v1.14</div>
   </div>
 
   <div class="group-dialog-backdrop" id="groupDialog" aria-hidden="true">
@@ -1063,7 +1066,7 @@
       <div class="group-dialog-field">
         <label for="groupExistingSelect">已有分组</label>
         <select id="groupExistingSelect">
-          <option value="">未分组</option>
+          <option value="">默认</option>
         </select>
       </div>
 
