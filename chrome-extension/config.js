@@ -16,6 +16,11 @@ const FENGWIND_WELFARE_DOMAIN = 'api-welfalre.fengwind.com';
 const FENGWIND_WELFARE_PAGE_PATH = '/';
 const FENGWIND_WELFARE_CHECK_IN_PATH = '/api/checkin';
 const FENGWIND_WELFARE_STATUS_PATH = '/api/checkin/status';
+const PIPI_STUDIO_SITE_TYPE = 'pipi-studio';
+const PIPI_STUDIO_DOMAIN = 'img.pipiwangcom.com';
+const PIPI_STUDIO_PAGE_PATH = '/';
+const PIPI_STUDIO_CHECK_IN_PATH = '/api/v1/pc/checkin';
+const PIPI_STUDIO_ME_PATH = '/api/v1/pc/me';
 const DEFAULT_SITE_GROUP_LABEL = '默认';
 const GROUP_CHECK_IN_ALARM_PREFIX = 'dailyCheckIn:';
 
@@ -92,7 +97,8 @@ function normalizeSiteType(type) {
     'points-checkin',
     'localapi',
     SOTA_AGENT_SITE_TYPE,
-    FENGWIND_WELFARE_SITE_TYPE
+    FENGWIND_WELFARE_SITE_TYPE,
+    PIPI_STUDIO_SITE_TYPE
   ].includes(type) ? type : 'newapi';
 }
 
@@ -166,7 +172,7 @@ function normalizeSitePageUrlForType(pageUrl, domain, type, defaultPagePath) {
     } catch (e) {}
   }
 
-  if (type === SOTA_AGENT_SITE_TYPE || type === FENGWIND_WELFARE_SITE_TYPE) {
+  if (type === SOTA_AGENT_SITE_TYPE || type === FENGWIND_WELFARE_SITE_TYPE || type === PIPI_STUDIO_SITE_TYPE) {
     return defaultUrl;
   }
 
@@ -185,6 +191,9 @@ function buildSiteConfig(site) {
   if (normalizedType === FENGWIND_WELFARE_SITE_TYPE && d !== FENGWIND_WELFARE_DOMAIN) {
     exactSiteType = 'newapi';
   }
+  if (normalizedType === PIPI_STUDIO_SITE_TYPE && d !== PIPI_STUDIO_DOMAIN) {
+    exactSiteType = 'newapi';
+  }
   const type = mode === 'visit' ? 'visit' : exactSiteType;
   const apiBasePathByType = {
     sub2api: '/api/v1/user/check-in',
@@ -195,7 +204,8 @@ function buildSiteConfig(site) {
     'points-checkin': '/api/points/checkin',
     localapi: '/user/api/checkin',
     [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH,
-    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_CHECK_IN_PATH
+    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_CHECK_IN_PATH,
+    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_CHECK_IN_PATH
   };
   const defaultPagePathByType = {
     sub2api: '/check-in',
@@ -205,7 +215,8 @@ function buildSiteConfig(site) {
     'points-checkin': '/#/checkin',
     localapi: '/checkin',
     [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_PAGE_PATH,
-    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_PAGE_PATH
+    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_PAGE_PATH,
+    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_PAGE_PATH
   };
   const queryPathByType = {
     zenapi: '/api/u/dashboard',
@@ -214,7 +225,8 @@ function buildSiteConfig(site) {
     'points-checkin': '/api/auth/me',
     localapi: '/user/api/dashboard',
     [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH,
-    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_STATUS_PATH
+    [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_STATUS_PATH,
+    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_ME_PATH
   };
   const apiBasePath = apiBasePathByType[type] || '/api/user/checkin';
   const defaultPagePath = defaultPagePathByType[type] || '/console/personal';
@@ -226,7 +238,8 @@ function buildSiteConfig(site) {
       'points-checkin',
       'localapi',
       SOTA_AGENT_SITE_TYPE,
-      FENGWIND_WELFARE_SITE_TYPE
+      FENGWIND_WELFARE_SITE_TYPE,
+      PIPI_STUDIO_SITE_TYPE
     ].includes(type) &&
     site.useApi !== false;
   const unauthKeywords = ['login', 'relogin'].includes(mode)
@@ -278,6 +291,7 @@ if (typeof module !== 'undefined' && module.exports) {
     DEFAULT_SITES,
     FENGWIND_WELFARE_SITE_TYPE,
     SOTA_AGENT_SITE_TYPE,
+    PIPI_STUDIO_SITE_TYPE,
     buildSiteConfig,
     dedupeSitesByDomain,
     fillMissingGroupAutoSignTimes,

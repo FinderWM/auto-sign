@@ -63,3 +63,12 @@ popup 经 `chrome.runtime.sendMessage` 触发 `manualCheckIn` / `retrySiteCheckI
 - 原因：扩展代码改动必须 reload 才生效，版本号是确认「已加载到最新代码」的唯一可见标志；不递增则无法区分 reload 的是哪一轮改动，验证时易误判。
 - 页脚版本号同步：popup 启动时 `popup.js` 用 manifest 版本动态覆盖 `#versionFooter`；每次递增版本时仍须同步修改 `popup.html` 的兜底文本，确保 popup JavaScript 未执行时也显示正确版本。
 - 验证前提示用户在 `chrome://extensions` reload，并确认显示的新版本号。纯文档/注释类改动可酌情跳过。
+
+### 新增站点类型：必须同步页面签到按钮识别
+
+新增站点类型时，除签到协议（type + handler + `config.js`/`site-url.js` 映射 + `detectSiteType`）外，**页面签到按钮的识别要一并适配**，否则两条链路会静默失效、且没有报错：
+
+- **入口注入**：`import-entry.js` 的「加入签到助手」按钮由 `ensureEntry` → `findCheckInButton` 触发；找不到该站签到按钮就不注入，用户无法从页面一键加入。
+- **页面点击兜底**：`useApi=false`（含接口失效回退）时，`background.js` 的 `checkInFromOfficialPage` 注入版 `findCheckInButton` 负责找按钮并点击；找不到即页面签到失败。
+
+两处 `findCheckInButton` 默认靠文案启发式（`import-entry.js` 的 `CHECKIN_TEXT` / background 注入版的 `matchesCheckInText`，多为 `^签到$` 精确锚定）。当目标站按钮是**动态文案**（如皮皮智绘「签到 +100~200」）、纯图标或非常规文案时启发式会漏，必须按域名加**稳定选择器特例**（如 `#checkinBtn` / `[data-act="checkin"]`），参考 `IS_SOTA_AGENT_PAGE`（`www.sotamodel.net`）、`IS_PIPI_STUDIO_PAGE`（`img.pipiwangcom.com`）。同时确认已签态文案能被 `matchesAlreadyCheckedText` / `findCheckedInStateText` 命中，避免已签站被反复点击。

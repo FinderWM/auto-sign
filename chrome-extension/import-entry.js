@@ -17,6 +17,7 @@
   const CHECKED_IN_TEXT = /^(?:已签到|已签|今日已签到|今日已签|checked in today|already checked in)$/i;
   const NEGATIVE_TEXT = /设置|配置|settings?|enable|minimum|maximum|quota|已签到|已签|今日已签|already|历史|记录|说明|规则/i;
   const IS_SOTA_AGENT_PAGE = location.hostname === 'www.sotamodel.net' && location.pathname === '/agents';
+  const IS_PIPI_STUDIO_PAGE = location.hostname === 'img.pipiwangcom.com';
 
   let injectedButton = null;
   let cachedDomain = location.hostname.toLowerCase();
@@ -63,6 +64,13 @@
   // 在页面中查找签到按钮
   // 先用窄选择器粗筛候选，再做文本/可见性判定，避免全量遍历
   function findCheckInButton() {
+    // 皮皮智绘：签到按钮文案带动态奖励后缀（如“签到 +100~200”），通用文案启发式不命中；
+    // 用稳定的 #checkinBtn / [data-act="checkin"] 精确定位（已签/未签状态均适用）。
+    if (IS_PIPI_STUDIO_PAGE) {
+      const pipiBtn = document.querySelector('#checkinBtn, [data-act="checkin"]');
+      if (pipiBtn && !pipiBtn.classList.contains(ENTRY_CLASS) && isVisible(pipiBtn)) return pipiBtn;
+    }
+
     // gift 图标仍是强特征，但必须同时带有签到/已签到文案，
     // 避免把“奖励中心”这类普通菜单项误判成签到按钮。
     const giftIcons = document.querySelectorAll('.lucide-gift, svg.lucide-gift');

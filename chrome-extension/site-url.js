@@ -1,6 +1,7 @@
 (function(root) {
   const DEFAULT_SITE_PAGE_PATH = '/console/personal';
   const FENGWIND_WELFARE_DOMAIN = 'api-welfalre.fengwind.com';
+  const PIPI_STUDIO_DOMAIN = 'img.pipiwangcom.com';
 
   function normalizeUrlInput(input) {
     const trimmed = String(input || '').trim();
@@ -26,7 +27,8 @@
       'points-checkin',
       'localapi',
       'sota-agent',
-      'fengwind-welfare'
+      'fengwind-welfare',
+      'pipi-studio'
     ].includes(type) ? type : 'auto';
   }
 
@@ -40,9 +42,10 @@
   }
 
   function inferSiteType(domain, type) {
-    return type === 'auto' && domain === FENGWIND_WELFARE_DOMAIN
-      ? 'fengwind-welfare'
-      : type;
+    if (type !== 'auto') return type;
+    if (domain === FENGWIND_WELFARE_DOMAIN) return 'fengwind-welfare';
+    if (domain === PIPI_STUDIO_DOMAIN) return 'pipi-studio';
+    return type;
   }
 
   function parseSiteInput(input, mode = 'checkin', type = 'auto') {
@@ -135,6 +138,9 @@
       if (site?.type === 'fengwind-welfare' && site.domain === 'api-welfalre.fengwind.com') {
         return `https://${site.domain}/`;
       }
+      if (site?.type === 'pipi-studio' && site.domain === PIPI_STUDIO_DOMAIN) {
+        return `https://${site.domain}/`;
+      }
       return site.pageUrl;
     }
     if (site?.type === 'deeix-chat') return `https://${site.domain}/chat`;
@@ -145,6 +151,9 @@
     if (site?.type === 'localapi') return getLocalApiDefaultPageUrl(site.domain);
     if (site?.type === 'sota-agent' && site.domain === 'www.sotamodel.net') return `https://${site.domain}/agents`;
     if (site?.type === 'fengwind-welfare' && site.domain === 'api-welfalre.fengwind.com') {
+      return `https://${site.domain}/`;
+    }
+    if (site?.type === 'pipi-studio' && site.domain === PIPI_STUDIO_DOMAIN) {
       return `https://${site.domain}/`;
     }
     return `https://${site.domain}${DEFAULT_SITE_PAGE_PATH}`;

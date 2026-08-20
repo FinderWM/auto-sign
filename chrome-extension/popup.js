@@ -616,7 +616,8 @@ function getSiteTypeLabel(site) {
     'points-checkin': '积分签到',
     localapi: 'LocalAPI',
     'sota-agent': 'Sota Agent',
-    'fengwind-welfare': 'Fengwind 福利'
+    'fengwind-welfare': 'Fengwind 福利',
+    'pipi-studio': '皮皮智绘'
   };
   return labels[site?.type] || '自动';
 }

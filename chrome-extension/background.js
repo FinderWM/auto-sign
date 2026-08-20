@@ -1,6 +1,6 @@
 // 导入配置
 importScripts('schedule.js', 'config.js', 'site-url.js', 'auth-headers.js', 'auth-cache-crypto.js', 'checkin-result.js',
-  'sota-agent.js', 'fengwind-welfare.js', 'newapi-auth.js', 'zenapi-auth.js', 'tab-options.js', 'site-name.js',
+  'sota-agent.js', 'pipi-studio.js', 'fengwind-welfare.js', 'newapi-auth.js', 'zenapi-auth.js', 'tab-options.js', 'site-name.js',
   'page-status.js', 'checkin-run-state.js', 'balance.js');
 
 const DAILY_CHECK_IN_ALARM = 'dailyCheckIn';
@@ -29,7 +29,8 @@ const SITE_TYPE_CHECK_IN_HANDLERS = {
   'points-checkin': checkInPointsCheckinSite,
   localapi: checkInLocalApiSite,
   'sota-agent': checkInSotaAgentSite,
-  'fengwind-welfare': checkInFengwindWelfareSite
+  'fengwind-welfare': checkInFengwindWelfareSite,
+  'pipi-studio': checkInPipiStudioSite
 };
 const SITE_TYPE_DAILY_LOGIN_HANDLERS = {
   newapi: checkInNewApiDailyLogin
@@ -1198,7 +1199,7 @@ async function maybeUpdateSiteName(site, tabSession = null) {
     mode: site.mode,
     type: site.type,
     pageUrl: site.visitUrl,
-    useApi: ['sota-agent', 'fengwind-welfare'].includes(site.type) ? site.useApi : undefined
+    useApi: ['sota-agent', 'fengwind-welfare', 'pipi-studio'].includes(site.type) ? site.useApi : undefined
   });
 }
 
@@ -1903,7 +1904,7 @@ async function resolveSiteType(site, tabSession = null) {
   if (site.type !== 'auto') return site;
 
   const detectedType = await detectSiteType(site, tabSession);
-  const defaultsToApi = ['sota-agent', 'fengwind-welfare'].includes(detectedType);
+  const defaultsToApi = ['sota-agent', 'fengwind-welfare', 'pipi-studio'].includes(detectedType);
   const storedUseApi = defaultsToApi ? await getConfiguredUseApi(site.cookieDomain) : undefined;
   const configuredUseApi = defaultsToApi
     ? (typeof storedUseApi === 'boolean' ? storedUseApi : true)
@@ -1977,6 +1978,9 @@ function getResolvedVisitUrl(site, type) {
   if (type === 'fengwind-welfare' && isFengwindWelfareDomain(site.cookieDomain)) {
     return `https://${site.cookieDomain}${FENGWIND_WELFARE_PAGE_PATH}`;
   }
+  if (type === 'pipi-studio' && isPipiStudioDomain(site.cookieDomain)) {
+    return `https://${site.cookieDomain}${PIPI_STUDIO_PAGE_PATH}`;
+  }
   return site.visitUrl;
 }
 
@@ -2019,6 +2023,10 @@ async function maybeUpgradeLegacyNewApiSite(site, tabSession = null) {
     const configuredUseApi = await getConfiguredUseApi(site.cookieDomain);
     forcedUseApi = typeof configuredUseApi === 'boolean' ? configuredUseApi : true;
   }
+  if (detectedType === 'pipi-studio') {
+    const configuredUseApi = await getConfiguredUseApi(site.cookieDomain);
+    forcedUseApi = typeof configuredUseApi === 'boolean' ? configuredUseApi : true;
+  }
   await updateRawSiteType(site.cookieDomain, detectedType, { useApi: forcedUseApi });
 
   const resolvedPageUrl = detectedType === 'points-checkin'
@@ -2029,6 +2037,8 @@ async function maybeUpgradeLegacyNewApiSite(site, tabSession = null) {
     ? `https://${site.cookieDomain}${SOTA_AGENT_PAGE_PATH}`
     : detectedType === 'fengwind-welfare'
     ? `https://${site.cookieDomain}${FENGWIND_WELFARE_PAGE_PATH}`
+    : detectedType === 'pipi-studio'
+    ? `https://${site.cookieDomain}${PIPI_STUDIO_PAGE_PATH}`
     : getResolvedVisitUrl(site, detectedType);
 
   const nextSite = buildSiteConfig({
@@ -2263,6 +2273,11 @@ async function detectSiteType(site, tabSession = null) {
     return 'sota-agent';
   }
 
+  if (urlHint === 'pipi-studio') {
+    console.log(`${site.siteName} URL 精确识别为皮皮智绘`);
+    return 'pipi-studio';
+  }
+
   // 1) SW 侧 API 探测（不依赖 tab / 页面脚本）
   if (site?.cookieDomain && await detectLocalApiFromApi(site.cookieDomain)) {
     console.log(`${site.siteName} API 探测识别为 localapi`);
@@ -2469,6 +2484,7 @@ function detectSiteTypeFromUrl(url) {
     const parsed = new URL(url || '');
     if (isFengwindWelfareDomain(parsed.hostname)) return 'fengwind-welfare';
     if (isSotaAgentDomain(parsed.hostname)) return 'sota-agent';
+    if (isPipiStudioDomain(parsed.hostname)) return 'pipi-studio';
     if (parsed.pathname.startsWith('/chat')) return 'deeix-chat';
     const redirect = parsed.searchParams.get('redirect') || '';
     if (
@@ -2548,6 +2564,9 @@ async function updateRawSiteType(domain, type, { useApi } = {}) {
     }
     if (type === 'fengwind-welfare' && isFengwindWelfareDomain(domain)) {
       next.pageUrl = `https://${domain}${FENGWIND_WELFARE_PAGE_PATH}`;
+    }
+    if (type === 'pipi-studio' && isPipiStudioDomain(domain)) {
+      next.pageUrl = `https://${domain}${PIPI_STUDIO_PAGE_PATH}`;
     }
     return next;
   });
@@ -2787,6 +2806,90 @@ async function checkInSotaAgentSite(site, tabSession = null) {
     return finishSotaAgentWithPageFallback(site, flowResult.execResult, tab.id, tabSession);
   }
   return finishSotaAgentApiResult(
+    flowResult.execResult,
+    tab.id,
+    tabSession,
+    flowResult.queryVerified
+  );
+}
+
+async function executePipiStudioTabRequest(tabId, method, endpoint) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: requestPipiStudioInPage,
+      args: [method, endpoint, PIPI_STUDIO_TOKEN_KEY, SITE_FETCH_TIMEOUT_MS]
+    });
+    return results[0]?.result || {
+      error: '皮皮智绘页面请求无响应',
+      httpStatus: 0,
+      data: null
+    };
+  } catch (e) {
+    return {
+      error: e?.message || '皮皮智绘页面请求失败',
+      httpStatus: 0,
+      data: null
+    };
+  }
+}
+
+function logPipiStudioRequestState(site, stage, result) {
+  console.log(`${site.siteName} 皮皮智绘 ${stage}:`, {
+    httpStatus: result?.httpStatus || 0,
+    hasToken: result?.hasToken === true,
+    missingToken: result?.missingToken === true,
+    invalidSite: result?.invalidSite === true,
+    hasError: Boolean(result?.error)
+  });
+}
+
+function buildPipiStudioRunResult(execResult, queryVerified = false) {
+  const result = formatResult(execResult);
+  const pointsText = formatPipiStudioPoints(execResult?.points);
+  if (pointsText) result.balance = `${pointsText} 积分`;
+  result.queryVerified = queryVerified;
+  return result;
+}
+
+async function finishPipiStudioWithPageFallback(site, execResult, tabId, tabSession) {
+  const fallback = await tryOfficialPageFallback(site, execResult, tabId, tabSession);
+  const result = buildPipiStudioRunResult(fallback.execResult, false);
+  await closeTabUnlessInSession(fallback.tabToCleanup, tabSession);
+  return result;
+}
+
+async function finishPipiStudioApiResult(execResult, tabId, tabSession, queryVerified) {
+  const result = buildPipiStudioRunResult(execResult, queryVerified);
+  await closeTabUnlessInSession(tabId, tabSession);
+  return result;
+}
+
+async function checkInPipiStudioSite(site, tabSession = null) {
+  if (!isPipiStudioDomain(site.cookieDomain)) {
+    return { status: 'failed', message: '皮皮智绘仅支持 img.pipiwangcom.com' };
+  }
+
+  if (!site.useApi) {
+    return finishPipiStudioWithPageFallback(site, {
+      success: false,
+      message: '已禁用接口调用，使用页面点击签到',
+      httpStatus: 0,
+      skipApiByConfig: true
+    }, null, tabSession);
+  }
+
+  await appendCheckInLog(site.siteName, '待检查', '使用皮皮智绘页面登录态查询今日签到状态');
+  const tab = await openSiteSessionTab(tabSession, site.visitUrl, 20000);
+  const flowResult = await runPipiStudioCheckInFlow(
+    (method, endpoint) => executePipiStudioTabRequest(tab.id, method, endpoint),
+    (stage, result) => logPipiStudioRequestState(site, stage, result)
+  );
+  if (flowResult.shouldFallback) {
+    return finishPipiStudioWithPageFallback(site, flowResult.execResult, tab.id, tabSession);
+  }
+  return finishPipiStudioApiResult(
     flowResult.execResult,
     tab.id,
     tabSession,
@@ -4893,6 +4996,15 @@ async function checkInFromOfficialPage(site, tabSession = null) {
       }
 
       function findCheckInButton({ immediateOnly = false } = {}) {
+        // 皮皮智绘：签到按钮文案含动态奖励后缀（如“签到 +100~200”），文案启发式不命中，
+        // 用稳定的 #checkinBtn / [data-act="checkin"] 直取（禁用/已签态交给已签检测处理）。
+        if (location.hostname === 'img.pipiwangcom.com') {
+          const pipiBtn = document.querySelector('#checkinBtn, [data-act="checkin"]');
+          if (pipiBtn && isVisible(pipiBtn) && !isDisabledCandidate(pipiBtn) &&
+            !matchesAlreadyCheckedText(getCandidateText(pipiBtn).replace(/\s+/g, ' ').trim())) {
+            return pipiBtn;
+          }
+        }
         const clickableSelector = [
           'button',
           '[role="button"]',
