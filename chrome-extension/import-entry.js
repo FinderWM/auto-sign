@@ -18,6 +18,7 @@
   const NEGATIVE_TEXT = /设置|配置|settings?|enable|minimum|maximum|quota|已签到|已签|今日已签|already|历史|记录|说明|规则/i;
   const IS_SOTA_AGENT_PAGE = location.hostname === 'www.sotamodel.net' && location.pathname === '/agents';
   const IS_PIPI_STUDIO_PAGE = location.hostname === 'img.pipiwangcom.com';
+  const IS_HYXWARE_PAGE = location.hostname === 'hyxware.com';
 
   let injectedButton = null;
   let cachedDomain = location.hostname.toLowerCase();
@@ -53,11 +54,13 @@
 
   function isCheckInText(text) {
     if (IS_SOTA_AGENT_PAGE && /^Check in$/i.test(text)) return true;
+    if (IS_HYXWARE_PAGE && /^Check In$/i.test(text)) return true;
     return Boolean(text) && CHECKIN_TEXT.test(text) && !NEGATIVE_TEXT.test(text);
   }
 
   function isCheckedInText(text) {
     if (IS_SOTA_AGENT_PAGE && /^Checked in$/i.test(text)) return true;
+    if (IS_HYXWARE_PAGE && /^Checked In$/i.test(text)) return true;
     return Boolean(text) && CHECKED_IN_TEXT.test(text);
   }
 
@@ -69,6 +72,15 @@
     if (IS_PIPI_STUDIO_PAGE) {
       const pipiBtn = document.querySelector('#checkinBtn, [data-act="checkin"]');
       if (pipiBtn && !pipiBtn.classList.contains(ENTRY_CLASS) && isVisible(pipiBtn)) return pipiBtn;
+    }
+
+    // HyxAPI：签到卡片固定在 [data-wallet-checkin] 内；标题「Daily Check-in」也含
+    // 签到文案，通用文案启发式可能先命中标题，这里用卡片内按钮精确定位。
+    if (IS_HYXWARE_PAGE) {
+      const hyxwareBtn = Array.from(document.querySelectorAll('[data-wallet-checkin] button'))
+        .find(el => !el.classList.contains(ENTRY_CLASS) && isVisible(el) &&
+          (isCheckInButton(el) || isAlreadyCheckedInButton(el)));
+      if (hyxwareBtn) return hyxwareBtn;
     }
 
     // gift 图标仍是强特征，但必须同时带有签到/已签到文案，

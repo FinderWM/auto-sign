@@ -1,6 +1,6 @@
 // 导入配置
 importScripts('schedule.js', 'config.js', 'site-url.js', 'auth-headers.js', 'auth-cache-crypto.js', 'checkin-result.js',
-  'sota-agent.js', 'pipi-studio.js', 'fengwind-welfare.js', 'newapi-auth.js', 'zenapi-auth.js', 'tab-options.js', 'site-name.js',
+  'sota-agent.js', 'pipi-studio.js', 'hyxware.js', 'fengwind-welfare.js', 'newapi-auth.js', 'zenapi-auth.js', 'tab-options.js', 'site-name.js',
   'page-status.js', 'checkin-run-state.js', 'balance.js');
 
 const DAILY_CHECK_IN_ALARM = 'dailyCheckIn';
@@ -30,7 +30,8 @@ const SITE_TYPE_CHECK_IN_HANDLERS = {
   localapi: checkInLocalApiSite,
   'sota-agent': checkInSotaAgentSite,
   'fengwind-welfare': checkInFengwindWelfareSite,
-  'pipi-studio': checkInPipiStudioSite
+  'pipi-studio': checkInPipiStudioSite,
+  hyxware: checkInHyxwareSite
 };
 const SITE_TYPE_DAILY_LOGIN_HANDLERS = {
   newapi: checkInNewApiDailyLogin
@@ -1199,7 +1200,7 @@ async function maybeUpdateSiteName(site, tabSession = null) {
     mode: site.mode,
     type: site.type,
     pageUrl: site.visitUrl,
-    useApi: ['sota-agent', 'fengwind-welfare', 'pipi-studio'].includes(site.type) ? site.useApi : undefined
+    useApi: ['sota-agent', 'fengwind-welfare', 'pipi-studio', 'hyxware'].includes(site.type) ? site.useApi : undefined
   });
 }
 
@@ -1904,7 +1905,7 @@ async function resolveSiteType(site, tabSession = null) {
   if (site.type !== 'auto') return site;
 
   const detectedType = await detectSiteType(site, tabSession);
-  const defaultsToApi = ['sota-agent', 'fengwind-welfare', 'pipi-studio'].includes(detectedType);
+  const defaultsToApi = ['sota-agent', 'fengwind-welfare', 'pipi-studio', 'hyxware'].includes(detectedType);
   const storedUseApi = defaultsToApi ? await getConfiguredUseApi(site.cookieDomain) : undefined;
   const configuredUseApi = defaultsToApi
     ? (typeof storedUseApi === 'boolean' ? storedUseApi : true)
@@ -1981,6 +1982,9 @@ function getResolvedVisitUrl(site, type) {
   if (type === 'pipi-studio' && isPipiStudioDomain(site.cookieDomain)) {
     return `https://${site.cookieDomain}${PIPI_STUDIO_PAGE_PATH}`;
   }
+  if (type === 'hyxware' && isHyxwareDomain(site.cookieDomain)) {
+    return `https://${site.cookieDomain}${HYXWARE_PAGE_PATH}`;
+  }
   return site.visitUrl;
 }
 
@@ -2027,6 +2031,10 @@ async function maybeUpgradeLegacyNewApiSite(site, tabSession = null) {
     const configuredUseApi = await getConfiguredUseApi(site.cookieDomain);
     forcedUseApi = typeof configuredUseApi === 'boolean' ? configuredUseApi : true;
   }
+  if (detectedType === 'hyxware') {
+    const configuredUseApi = await getConfiguredUseApi(site.cookieDomain);
+    forcedUseApi = typeof configuredUseApi === 'boolean' ? configuredUseApi : true;
+  }
   await updateRawSiteType(site.cookieDomain, detectedType, { useApi: forcedUseApi });
 
   const resolvedPageUrl = detectedType === 'points-checkin'
@@ -2039,6 +2047,8 @@ async function maybeUpgradeLegacyNewApiSite(site, tabSession = null) {
     ? `https://${site.cookieDomain}${FENGWIND_WELFARE_PAGE_PATH}`
     : detectedType === 'pipi-studio'
     ? `https://${site.cookieDomain}${PIPI_STUDIO_PAGE_PATH}`
+    : detectedType === 'hyxware'
+    ? `https://${site.cookieDomain}${HYXWARE_PAGE_PATH}`
     : getResolvedVisitUrl(site, detectedType);
 
   const nextSite = buildSiteConfig({
@@ -2278,6 +2288,11 @@ async function detectSiteType(site, tabSession = null) {
     return 'pipi-studio';
   }
 
+  if (urlHint === 'hyxware') {
+    console.log(`${site.siteName} URL 精确识别为 HyxAPI`);
+    return 'hyxware';
+  }
+
   // 1) SW 侧 API 探测（不依赖 tab / 页面脚本）
   if (site?.cookieDomain && await detectLocalApiFromApi(site.cookieDomain)) {
     console.log(`${site.siteName} API 探测识别为 localapi`);
@@ -2485,6 +2500,7 @@ function detectSiteTypeFromUrl(url) {
     if (isFengwindWelfareDomain(parsed.hostname)) return 'fengwind-welfare';
     if (isSotaAgentDomain(parsed.hostname)) return 'sota-agent';
     if (isPipiStudioDomain(parsed.hostname)) return 'pipi-studio';
+    if (isHyxwareDomain(parsed.hostname)) return 'hyxware';
     if (parsed.pathname.startsWith('/chat')) return 'deeix-chat';
     const redirect = parsed.searchParams.get('redirect') || '';
     if (
@@ -2567,6 +2583,9 @@ async function updateRawSiteType(domain, type, { useApi } = {}) {
     }
     if (type === 'pipi-studio' && isPipiStudioDomain(domain)) {
       next.pageUrl = `https://${domain}${PIPI_STUDIO_PAGE_PATH}`;
+    }
+    if (type === 'hyxware' && isHyxwareDomain(domain)) {
+      next.pageUrl = `https://${domain}${HYXWARE_PAGE_PATH}`;
     }
     return next;
   });
@@ -2890,6 +2909,91 @@ async function checkInPipiStudioSite(site, tabSession = null) {
     return finishPipiStudioWithPageFallback(site, flowResult.execResult, tab.id, tabSession);
   }
   return finishPipiStudioApiResult(
+    flowResult.execResult,
+    tab.id,
+    tabSession,
+    flowResult.queryVerified
+  );
+}
+
+async function executeHyxwareTabRequest(tabId, method, endpoint, token) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: requestHyxwareInPage,
+      args: [method, endpoint, token, SITE_FETCH_TIMEOUT_MS]
+    });
+    return results[0]?.result || {
+      error: 'HyxAPI 页面请求无响应',
+      httpStatus: 0,
+      data: null
+    };
+  } catch (e) {
+    return {
+      error: e?.message || 'HyxAPI 页面请求失败',
+      httpStatus: 0,
+      data: null
+    };
+  }
+}
+
+function logHyxwareRequestState(site, stage, result) {
+  console.log(`${site.siteName} HyxAPI ${stage}:`, {
+    httpStatus: result?.httpStatus || 0,
+    hasToken: result?.hasToken === true || Boolean(parseHyxwareRefreshResponse(result).accessToken),
+    missingToken: result?.missingToken === true,
+    invalidSite: result?.invalidSite === true,
+    hasError: Boolean(result?.error)
+  });
+}
+
+function buildHyxwareRunResult(execResult, queryVerified = false) {
+  const result = formatResult(execResult);
+  if (execResult?.balance) result.balance = execResult.balance;
+  const quotaText = formatHyxwareQuota(execResult?.quota);
+  if (quotaText) result.balance = quotaText;
+  result.queryVerified = queryVerified;
+  return result;
+}
+
+async function finishHyxwareWithPageFallback(site, execResult, tabId, tabSession) {
+  const fallback = await tryOfficialPageFallback(site, execResult, tabId, tabSession);
+  const result = buildHyxwareRunResult(fallback.execResult, false);
+  await closeTabUnlessInSession(fallback.tabToCleanup, tabSession);
+  return result;
+}
+
+async function finishHyxwareApiResult(execResult, tabId, tabSession, queryVerified) {
+  const result = buildHyxwareRunResult(execResult, queryVerified);
+  await closeTabUnlessInSession(tabId, tabSession);
+  return result;
+}
+
+async function checkInHyxwareSite(site, tabSession = null) {
+  if (!isHyxwareDomain(site.cookieDomain)) {
+    return { status: 'failed', message: 'HyxAPI 仅支持 hyxware.com' };
+  }
+
+  if (!site.useApi) {
+    return finishHyxwareWithPageFallback(site, {
+      success: false,
+      message: '已禁用接口调用，使用页面点击签到',
+      httpStatus: 0,
+      skipApiByConfig: true
+    }, null, tabSession);
+  }
+
+  await appendCheckInLog(site.siteName, '待检查', '使用 HyxAPI 页面登录态查询今日签到状态');
+  const tab = await openSiteSessionTab(tabSession, site.visitUrl, 20000);
+  const flowResult = await runHyxwareCheckInFlow(
+    (method, endpoint, token) => executeHyxwareTabRequest(tab.id, method, endpoint, token),
+    (stage, result) => logHyxwareRequestState(site, stage, result)
+  );
+  if (flowResult.shouldFallback) {
+    return finishHyxwareWithPageFallback(site, flowResult.execResult, tab.id, tabSession);
+  }
+  return finishHyxwareApiResult(
     flowResult.execResult,
     tab.id,
     tabSession,
@@ -5004,6 +5108,19 @@ async function checkInFromOfficialPage(site, tabSession = null) {
             !matchesAlreadyCheckedText(getCandidateText(pipiBtn).replace(/\s+/g, ' ').trim())) {
             return pipiBtn;
           }
+        }
+        // HyxAPI：签到卡片固定在 [data-wallet-checkin] 容器内，标题「Daily Check-in」
+        // 也含 checkin 文案且优先级更高，必须用卡片按钮精确定位，避免误点标题。
+        if (location.hostname === 'hyxware.com') {
+          const hyxwareBtn = Array.from(document.querySelectorAll('[data-wallet-checkin] button'))
+            .find((el) => {
+              const text = getCandidateText(el).replace(/\s+/g, ' ').trim();
+              return /^(Check In|签到|立即签到)$/i.test(text) &&
+                isVisible(el) &&
+                !isDisabledCandidate(el) &&
+                !matchesAlreadyCheckedText(text);
+            });
+          if (hyxwareBtn) return hyxwareBtn;
         }
         const clickableSelector = [
           'button',

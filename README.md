@@ -22,12 +22,13 @@ Chrome。站点配置、认证缓存和签到结果均保存在浏览器本地�
 | DEEIX Chat | `/api/v1/billing/checkin`（站点开放时） | 刷新登录态、Linux.do OAuth |
 | LocalAPI | `/user/api/checkin` | `localapi_user_token`、`x-user-token` |
 | points-checkin | `/api/points/checkin` | Cookie 会话、Linux.do OAuth |
+| HyxAPI | `/api/user/checkin` | 页面 Cookie 会话刷新 access token（Bearer） |
 | 通用页面签到 | 查找并点击“签到 / 签 / Check in”等按钮 | 浏览器现有登录态 |
 | 仅访问站点 | 每日打开指定页面并读取可用余额 | 浏览器现有登录态 |
 
-`points-checkin` 适用于 WisArt 等使用相同协议的站点。扩展也支持自动探测
-站点类型；如果站点使用了深度定制的接口或页面，可能需要改用页面模式，或
-提交 Issue 补充适配。
+`points-checkin` 适用于 WisArt 等使用相同协议的站点，`HyxAPI` 仅对
+`hyxware.com` 生效。扩展也支持自动探测站点类型；如果站点使用了深度定制的
+接口或页面，可能需要改用页面模式，或提交 Issue 补充适配。
 
 除普通签到外，还可以为站点选择以下运行模式：
 

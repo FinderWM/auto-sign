@@ -617,7 +617,8 @@ function getSiteTypeLabel(site) {
     localapi: 'LocalAPI',
     'sota-agent': 'Sota Agent',
     'fengwind-welfare': 'Fengwind 福利',
-    'pipi-studio': '皮皮智绘'
+    'pipi-studio': '皮皮智绘',
+    hyxware: 'HyxAPI'
   };
   return labels[site?.type] || '自动';
 }

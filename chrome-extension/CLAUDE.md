@@ -30,6 +30,8 @@ Chrome MV3 扩展「公益站自动签到助手」：管理多个公益 API 站�
 
 `localapi` 通过 `x-user-token` 调用 `/user/api/checkin`，`points-checkin` 则是 Cookie 会话 + `/api/auth/linuxdo/start` + `/api/points/checkin` 协议，两者不能混用。
 
+`hyxware` 仅对精确域名 `hyxware.com` 生效：access token 只存在于页面内存、不落 localStorage，因此必须在页面上下文用 Cookie 会话 `POST /api/user/auth/refresh` 现场换取 Bearer token，再调用 `/api/user/checkin`；签到页为 `/topup`，按钮位于 `[data-wallet-checkin]` 卡片内。
+
 ### 认证三级回退
 
 取认证头（`getNewApiAuthHeaders` 等）顺序：加密缓存（`authHeadersCache`，由 `auth-cache-crypto.js` 加解密）→ 浏览器已有登录态（cookies / 页面 storage）→ linux.do OAuth。遇 Cloudflare 拦截（403 / Just a moment）切到 `doCheckInRequest` 的 fetch-in-tab 路径，在页面上下文发请求绕过。401 清缓存后按同序重试一次。

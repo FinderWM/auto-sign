@@ -2,6 +2,7 @@
   const DEFAULT_SITE_PAGE_PATH = '/console/personal';
   const FENGWIND_WELFARE_DOMAIN = 'api-welfalre.fengwind.com';
   const PIPI_STUDIO_DOMAIN = 'img.pipiwangcom.com';
+  const HYXWARE_DOMAIN = 'hyxware.com';
 
   function normalizeUrlInput(input) {
     const trimmed = String(input || '').trim();
@@ -28,7 +29,8 @@
       'localapi',
       'sota-agent',
       'fengwind-welfare',
-      'pipi-studio'
+      'pipi-studio',
+      'hyxware'
     ].includes(type) ? type : 'auto';
   }
 
@@ -45,6 +47,7 @@
     if (type !== 'auto') return type;
     if (domain === FENGWIND_WELFARE_DOMAIN) return 'fengwind-welfare';
     if (domain === PIPI_STUDIO_DOMAIN) return 'pipi-studio';
+    if (domain === HYXWARE_DOMAIN) return 'hyxware';
     return type;
   }
 
@@ -141,6 +144,9 @@
       if (site?.type === 'pipi-studio' && site.domain === PIPI_STUDIO_DOMAIN) {
         return `https://${site.domain}/`;
       }
+      if (site?.type === 'hyxware' && site.domain === HYXWARE_DOMAIN) {
+        return `https://${site.domain}/topup`;
+      }
       return site.pageUrl;
     }
     if (site?.type === 'deeix-chat') return `https://${site.domain}/chat`;
@@ -156,6 +162,7 @@
     if (site?.type === 'pipi-studio' && site.domain === PIPI_STUDIO_DOMAIN) {
       return `https://${site.domain}/`;
     }
+    if (site?.type === 'hyxware' && site.domain === HYXWARE_DOMAIN) return `https://${site.domain}/topup`;
     return `https://${site.domain}${DEFAULT_SITE_PAGE_PATH}`;
   }
 

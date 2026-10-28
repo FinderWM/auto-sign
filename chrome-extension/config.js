@@ -21,6 +21,10 @@ const PIPI_STUDIO_DOMAIN = 'img.pipiwangcom.com';
 const PIPI_STUDIO_PAGE_PATH = '/';
 const PIPI_STUDIO_CHECK_IN_PATH = '/api/v1/pc/checkin';
 const PIPI_STUDIO_ME_PATH = '/api/v1/pc/me';
+const HYXWARE_SITE_TYPE = 'hyxware';
+const HYXWARE_DOMAIN = 'hyxware.com';
+const HYXWARE_PAGE_PATH = '/topup';
+const HYXWARE_CHECK_IN_PATH = '/api/user/checkin';
 const DEFAULT_SITE_GROUP_LABEL = '默认';
 const GROUP_CHECK_IN_ALARM_PREFIX = 'dailyCheckIn:';
 
@@ -98,7 +102,8 @@ function normalizeSiteType(type) {
     'localapi',
     SOTA_AGENT_SITE_TYPE,
     FENGWIND_WELFARE_SITE_TYPE,
-    PIPI_STUDIO_SITE_TYPE
+    PIPI_STUDIO_SITE_TYPE,
+    HYXWARE_SITE_TYPE
   ].includes(type) ? type : 'newapi';
 }
 
@@ -172,7 +177,12 @@ function normalizeSitePageUrlForType(pageUrl, domain, type, defaultPagePath) {
     } catch (e) {}
   }
 
-  if (type === SOTA_AGENT_SITE_TYPE || type === FENGWIND_WELFARE_SITE_TYPE || type === PIPI_STUDIO_SITE_TYPE) {
+  if (
+    type === SOTA_AGENT_SITE_TYPE ||
+    type === FENGWIND_WELFARE_SITE_TYPE ||
+    type === PIPI_STUDIO_SITE_TYPE ||
+    type === HYXWARE_SITE_TYPE
+  ) {
     return defaultUrl;
   }
 
@@ -194,6 +204,9 @@ function buildSiteConfig(site) {
   if (normalizedType === PIPI_STUDIO_SITE_TYPE && d !== PIPI_STUDIO_DOMAIN) {
     exactSiteType = 'newapi';
   }
+  if (normalizedType === HYXWARE_SITE_TYPE && d !== HYXWARE_DOMAIN) {
+    exactSiteType = 'newapi';
+  }
   const type = mode === 'visit' ? 'visit' : exactSiteType;
   const apiBasePathByType = {
     sub2api: '/api/v1/user/check-in',
@@ -205,7 +218,8 @@ function buildSiteConfig(site) {
     localapi: '/user/api/checkin',
     [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH,
     [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_CHECK_IN_PATH,
-    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_CHECK_IN_PATH
+    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_CHECK_IN_PATH,
+    [HYXWARE_SITE_TYPE]: HYXWARE_CHECK_IN_PATH
   };
   const defaultPagePathByType = {
     sub2api: '/check-in',
@@ -216,7 +230,8 @@ function buildSiteConfig(site) {
     localapi: '/checkin',
     [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_PAGE_PATH,
     [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_PAGE_PATH,
-    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_PAGE_PATH
+    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_PAGE_PATH,
+    [HYXWARE_SITE_TYPE]: HYXWARE_PAGE_PATH
   };
   const queryPathByType = {
     zenapi: '/api/u/dashboard',
@@ -226,7 +241,8 @@ function buildSiteConfig(site) {
     localapi: '/user/api/dashboard',
     [SOTA_AGENT_SITE_TYPE]: SOTA_AGENT_CHECK_IN_PATH,
     [FENGWIND_WELFARE_SITE_TYPE]: FENGWIND_WELFARE_STATUS_PATH,
-    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_ME_PATH
+    [PIPI_STUDIO_SITE_TYPE]: PIPI_STUDIO_ME_PATH,
+    [HYXWARE_SITE_TYPE]: HYXWARE_CHECK_IN_PATH
   };
   const apiBasePath = apiBasePathByType[type] || '/api/user/checkin';
   const defaultPagePath = defaultPagePathByType[type] || '/console/personal';
@@ -239,7 +255,8 @@ function buildSiteConfig(site) {
       'localapi',
       SOTA_AGENT_SITE_TYPE,
       FENGWIND_WELFARE_SITE_TYPE,
-      PIPI_STUDIO_SITE_TYPE
+      PIPI_STUDIO_SITE_TYPE,
+      HYXWARE_SITE_TYPE
     ].includes(type) &&
     site.useApi !== false;
   const unauthKeywords = ['login', 'relogin'].includes(mode)
@@ -290,6 +307,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DEFAULT_SITES,
     FENGWIND_WELFARE_SITE_TYPE,
+    HYXWARE_SITE_TYPE,
     SOTA_AGENT_SITE_TYPE,
     PIPI_STUDIO_SITE_TYPE,
     buildSiteConfig,
